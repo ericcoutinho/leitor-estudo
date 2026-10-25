@@ -52,11 +52,13 @@ Organize o trecho abaixo em tópicos, na ordem lógica do conteúdo. Regras:
 - Explique termos técnicos e siglas na primeira vez que aparecem.
 - Nada de tabelas, marcadores, asteriscos ou emojis: só texto corrido para ouvir. Listas viram frases ("São três tipos: primeiro..., segundo..., terceiro...").
 - Para cada tópico: um resumo de 1 a 3 frases e de 1 a 3 perguntas de revisão com resposta curta.
+- Para cada tópico, também de 4 a 8 flash cards: frente curta (um conceito, sigla, número ou pergunta direta) e verso
+  com a resposta em uma ou duas frases. Cubra o que mais cai em prova; não repita as perguntas de revisão.
 - Mantenha termos em inglês (ou outra língua estrangeira) escritos no original no texto, e liste em "pronuncia" cada um
   com a grafia aportuguesada de como um brasileiro fala, para a voz ler certo. Ex.: {"software":"sófituer","feedback":"fidbéc",
   "compliance":"complaiâns","home office":"rôum ófis"}. Siglas em inglês lidas letra a letra também: {"CEO":"ci í ôu"}.
 Responda SOMENTE com JSON válido neste formato:
-{"topicos":[{"titulo":"...","texto":"...","resumo":"...","perguntas":[{"pergunta":"...","resposta":"..."}]}],"pronuncia":{}}`;
+{"topicos":[{"titulo":"...","texto":"...","resumo":"...","perguntas":[{"pergunta":"...","resposta":"..."}],"cartoes":[{"frente":"...","verso":"..."}]}],"pronuncia":{}}`;
 const MODELOS = ["gemini-flash-lite-latest", "gemini-flash-latest"];
 const ESPERAS = [5, 15, 30, 60]; // segundos entre as tentativas quando o Gemini está ocupado (503) ou no limite por minuto
 const dormir = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -73,7 +75,8 @@ function motivo(status, j) {
   return { espera, texto: `erro ${status}` };
 }
 
-async function organizar(trecho, chave, aviso) {
+// chama o Gemini com novas tentativas; `valida` confere se o JSON veio com o que se pediu
+async function gemini(prompt, chave, aviso, valida) {
   const esgotados = new Set();
   let ultimo = "";
   for (let tentativa = 0; tentativa <= ESPERAS.length; tentativa++) {
@@ -83,7 +86,7 @@ async function organizar(trecho, chave, aviso) {
       try {
         r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(chave)}`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: [{ text: INSTRUCAO + "\n\nTRECHO:\n" + trecho }] }],
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { responseMimeType: "application/json", temperature: 0.3 } }),
         });
         j = await r.json().catch(() => ({}));
@@ -92,7 +95,7 @@ async function organizar(trecho, chave, aviso) {
         try {
           const bruto = j.candidates[0].content.parts[0].text;
           const o = JSON.parse(bruto.slice(bruto.indexOf("{"), bruto.lastIndexOf("}") + 1));
-          if (Array.isArray(o.topicos) && o.topicos.length) return { topicos: o.topicos, pronuncia: o.pronuncia || {} };
+          if (valida(o)) return o;
         } catch {}
         ultimo = "o Gemini respondeu fora do formato"; continue;
       }
@@ -108,6 +111,16 @@ async function organizar(trecho, chave, aviso) {
   }
   throw new Error(ultimo);
 }
+
+async function organizar(trecho, chave, aviso) {
+  const o = await gemini(INSTRUCAO + "\n\nTRECHO:\n" + trecho, chave, aviso, (o) => Array.isArray(o.topicos) && o.topicos.length);
+  return { topicos: o.topicos, pronuncia: o.pronuncia || {} };
+}
+
+const INSTRUCAO_CARTOES = `Crie flash cards para estudar para uma prova a partir do material abaixo, em português do Brasil.
+Para cada tópico indicado ("## número. título"), de 4 a 8 cartões: frente curta (um conceito, sigla, número ou pergunta direta)
+e verso com a resposta em uma ou duas frases. Cubra o que mais cai em prova: definições, números, datas, nomes, listas, exceções.
+Responda SOMENTE com JSON válido: {"cartoes":[{"topico":0,"frente":"...","verso":"..."}]} (topico = número do tópico, começando em 0).`;
 
 function soLer(texto) {
   return blocos(texto, 3000).map((t, i) => ({ titulo: `Parte ${i + 1}`, texto: t.trim(), resumo: "", perguntas: [] }));
@@ -258,6 +271,7 @@ function abrir(id) {
   parar();
   estudo = lembrar("estudo:" + id, null);
   if (!estudo) return;
+  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes");
   const salvo = lembrar("pos:" + id, { topico: 0, pos: 0 });
   montar(salvo.topico, salvo.pos);
   carregarLista();
@@ -302,6 +316,7 @@ async function organizarDepois() {
 }
 
 function montar(t, p = 0) {
+  if (modo === "cartoes" && estudo.topicos.length) return montarCartoes(); // material atualizado durante os cartões
   fila = []; limparPre();
   if (!estudo.topicos.length) { // nenhuma parte organizada ainda
     $("#coluna").innerHTML = faixaIa() + '<div class="vazio"><h2>Ainda não há tópicos prontos</h2></div>';
@@ -311,7 +326,7 @@ function montar(t, p = 0) {
   topico = Math.max(0, Math.min(t, estudo.topicos.length - 1));
   const tp = estudo.topicos[topico];
   const span = (texto, tipo) => { fila.push({ texto, tipo }); return `<span class="frase" data-i="${fila.length - 1}">${esc(texto)}</span> `; };
-  let html = faixaIa() + `<div class="topicos">${estudo.topicos.map((x, i) => `<button class="chip ${i === topico ? "ativo" : i < topico ? "feito" : ""}" data-t="${i}">${i + 1}. ${esc(x.titulo)}</button>`).join("")}</div>`;
+  let html = faixaIa() + abas() + `<div class="topicos">${estudo.topicos.map((x, i) => `<button class="chip ${i === topico ? "ativo" : i < topico ? "feito" : ""}" data-t="${i}">${i + 1}. ${esc(x.titulo)}</button>`).join("")}</div>`;
   html += `<h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
   if (tp.resumo) {
     fila.push({ texto: "Resumindo.", tipo: "aviso" });
@@ -328,6 +343,7 @@ function montar(t, p = 0) {
   }
   html += `<button class="apagar" id="apagar">Apagar este material</button>`;
   $("#coluna").innerHTML = html;
+  ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
   document.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { const t = tocando; parar(); montar(+c.dataset.t); if (t) tocar(); }));
   document.querySelectorAll(".frase").forEach((f) => (f.onclick = () => { parar(); ir(+f.dataset.i); tocar(); })); // tocar numa frase lê dali
@@ -418,10 +434,133 @@ $("#topAnt").onclick = pular(() => estudo && montar(topico - 1));
 $("#topProx").onclick = pular(() => estudo && montar(topico + 1));
 document.onkeydown = (e) => {
   if (["SELECT", "INPUT"].includes(e.target.tagName)) return;
+  if (modo === "cartoes") { // espaço vira; 1/← não sabia; 2/→ sabia
+    if (e.code === "Space") { e.preventDefault(); $("#virar")?.click(); }
+    if (["Digit1", "ArrowLeft"].includes(e.code)) $("#naoSabia")?.click();
+    if (["Digit2", "ArrowRight"].includes(e.code)) $("#sabia")?.click();
+    return;
+  }
   if (e.code === "Space") { e.preventDefault(); $("#tocar").click(); }
   if (e.code === "ArrowLeft") $("#fraseAnt").click();
   if (e.code === "ArrowRight") $("#fraseProx").click();
 };
+
+// ---------- flash cards ----------
+// Baralho = cartões que a IA criou + perguntas de revisão. Caixas (0 a 5) salvas por material: errou volta para a 0
+// e reaparece logo na mesma rodada; acertou sobe uma caixa. A rodada começa pelas caixas mais baixas.
+let modo = "ler", sessao = [], virado = false, filtroTopico = "todos", falaCartao = 0;
+const DOMINADO = 3;
+const baralho = (e) => e.topicos.flatMap((t, i) => [
+  ...(t.cartoes || []).map((c) => ({ t: i, frente: c.frente, verso: c.verso })),
+  ...(t.perguntas || []).map((q) => ({ t: i, frente: q.pergunta, verso: q.resposta })),
+]).filter((c) => c.frente && c.verso).map((c) => ({ ...c, chave: c.t + "|" + c.frente }));
+const caixas = () => lembrar("caixas:" + estudo.id, {});
+
+function abas() {
+  const n = baralho(estudo).length;
+  return `<div class="abas" role="tablist"><button class="aba ${modo === "ler" ? "ativo" : ""}" data-modo="ler" role="tab">Ler</button>` +
+    `<button class="aba ${modo === "cartoes" ? "ativo" : ""}" data-modo="cartoes" role="tab">Flash cards${n ? ` (${n})` : ""}</button></div>`;
+}
+function ligarAbas() {
+  document.querySelectorAll(".aba").forEach((b) => (b.onclick = () => {
+    if (b.dataset.modo === modo) return;
+    parar(); modo = b.dataset.modo;
+    document.body.classList.toggle("modo-cartoes", modo === "cartoes");
+    modo === "cartoes" ? novaRodada() : montar(topico, pos);
+  }));
+}
+
+function novaRodada() {
+  const cx = caixas();
+  const todos = baralho(estudo).filter((c) => filtroTopico === "todos" || c.t === +filtroTopico);
+  sessao = todos.map((c) => ({ c, s: (cx[c.chave] || 0) + Math.random() })).sort((a, b) => a.s - b.s).map((x) => x.c);
+  virado = false;
+  montarCartoes();
+}
+
+function falarCartao(texto) {
+  const minha = ++falaCartao;
+  audio.pause();
+  if (!$("#lerCartao")?.checked) return;
+  sintetizar(texto).then((url) => { if (minha === falaCartao && modo === "cartoes") { audio.src = url; audio.play().catch(() => {}); } }).catch(() => {});
+}
+
+function montarCartoes() {
+  const todos = baralho(estudo), cx = caixas();
+  const dominados = todos.filter((c) => (cx[c.chave] || 0) >= DOMINADO).length;
+  const semIa = !estudo.topicos.some((t) => t.cartoes?.length);
+  const filtro = `<select id="filtro"><option value="todos">Todos os tópicos</option>${estudo.topicos.map((t, i) =>
+    `<option value="${i}" ${String(i) === filtroTopico ? "selected" : ""}>${i + 1}. ${esc(t.titulo)}</option>`).join("")}</select>`;
+  const gerar = semIa ? `<button class="sec" id="gerarCartoes">${todos.length ? "Gerar mais cartões com IA" : "Gerar flash cards com IA"}</button>` : "";
+  let corpo;
+  if (!todos.length) corpo = `<div class="vazio"><h2>Ainda não há flash cards</h2><p>Gere os cartões com IA a partir deste material.</p></div>`;
+  else if (!sessao.length) corpo = `<div class="fim-rodada"><h2>Rodada concluída</h2><p>${dominados} de ${todos.length} cartões dominados.</p><button class="pri" id="recomecar">Nova rodada</button></div>`;
+  else {
+    const c = sessao[0];
+    corpo = `<div class="flash ${virado ? "virado" : ""}" id="virar" role="button" tabindex="0" aria-label="Virar cartão">
+        <span class="lado">${virado ? "Resposta" : "Pergunta"} · ${esc(estudo.topicos[c.t]?.titulo || "")}</span>
+        <div class="frente">${esc(c.frente)}</div>
+        ${virado ? `<div class="verso">${esc(c.verso)}</div>` : `<small>Toque para ver a resposta (espaço)</small>`}
+      </div>
+      <div class="respostas">${virado
+        ? `<button class="nao" id="naoSabia">Não sabia <kbd>1</kbd></button><button class="sim" id="sabia">Sabia <kbd>2</kbd></button>`
+        : `<span>Pense na resposta antes de virar.</span>`}</div>`;
+  }
+  $("#coluna").innerHTML = faixaIa() + abas() +
+    `<div class="cartoes-topo">${filtro}<label><input type="checkbox" id="lerCartao" ${lembrar("lerCartao", true) ? "checked" : ""}> Ler em voz alta</label>${gerar}</div>` +
+    (todos.length ? `<div class="placar"><span>Faltam ${sessao.length} nesta rodada</span><span>${dominados} de ${todos.length} dominados</span></div>
+      <div class="barra-dominio"><i style="width:${Math.round((dominados / todos.length) * 100)}%"></i></div>` : "") + corpo;
+  ligarAbas();
+  $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
+  $("#filtro").onchange = (e) => { filtroTopico = e.target.value; novaRodada(); };
+  $("#lerCartao").onchange = (e) => { guardar("lerCartao", e.target.checked); if (!e.target.checked) audio.pause(); };
+  $("#recomecar") && ($("#recomecar").onclick = novaRodada);
+  $("#gerarCartoes") && ($("#gerarCartoes").onclick = gerarCartoes);
+  if (sessao.length) {
+    $("#virar").onclick = () => { if (virado) return; virado = true; montarCartoes(); falarCartao(sessao[0].verso); };
+    $("#naoSabia") && ($("#naoSabia").onclick = () => responder(false));
+    $("#sabia") && ($("#sabia").onclick = () => responder(true));
+  }
+}
+
+function responder(sabia) {
+  const c = sessao.shift(), cx = caixas();
+  cx[c.chave] = sabia ? Math.min(5, (cx[c.chave] || 0) + 1) : 0;
+  guardar("caixas:" + estudo.id, cx);
+  if (!sabia) sessao.splice(Math.min(3, sessao.length), 0, c); // errou: volta daqui a 3 cartões
+  virado = false;
+  montarCartoes();
+  if (sessao.length) falarCartao(sessao[0].frente);
+}
+
+// material sem cartões (aberto sem IA ou organizado antes desta função): a IA cria os cartões a partir dos tópicos
+async function gerarCartoes() {
+  const chave = pedirChave();
+  if (!chave) return;
+  const e = estudo, st = $("#estado"); st.className = "estado";
+  const grupos = []; let atual = "";
+  e.topicos.forEach((t, i) => {
+    const bloco = `## ${i}. ${t.titulo}\n${t.texto}\n\n`;
+    if (atual && atual.length + bloco.length > 20000) { grupos.push(atual); atual = ""; }
+    atual += bloco;
+  });
+  if (atual) grupos.push(atual);
+  $("#gerarCartoes").disabled = true;
+  try {
+    for (let g = 0; g < grupos.length; g++) {
+      const aviso = (t) => (st.textContent = `Flash cards, parte ${g + 1} de ${grupos.length}: ${t}`);
+      aviso("gerando…");
+      const o = await gemini(INSTRUCAO_CARTOES + "\n\nMATERIAL:\n" + grupos[g], chave, aviso, (o) => Array.isArray(o.cartoes) && o.cartoes.length);
+      for (const c of o.cartoes) {
+        const t = e.topicos[+c.topico] || e.topicos.at(-1);
+        (t.cartoes ||= []).push({ frente: c.frente, verso: c.verso });
+      }
+      salvarEstudo(e);
+    }
+    st.textContent = "";
+  } catch (err) { st.className = "estado erro"; st.textContent = "Flash cards: " + err.message; }
+  if (estudo?.id === e.id && modo === "cartoes") novaRodada();
+}
 for (const id of ["voz", "vel", "pensar"]) {
   const v = lembrar(id, null); if (v !== null) $("#" + id).value = v;
   $("#" + id).onchange = () => { guardar(id, $("#" + id).value); limparPre(); };
