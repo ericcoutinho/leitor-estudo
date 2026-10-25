@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025041559";
+import { paraFala } from "./texto.js?v=20261025042202";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -373,8 +373,10 @@ function mostrarVoz() {
   document.querySelectorAll("[data-vel]").forEach((b) => (b.onclick = () => trocarAjuste(() => (velAtual = b.dataset.vel), "vel")));
 }
 function trocarAjuste(f, chave) {
-  const t = tocando; parar(); f(); guardar(chave, chave === "voz" ? vozAtual : velAtual);
+  const t = tocando, guiaFalando = modo === "guiado" && guia.etapa !== 2 && falandoGuia();
+  parar(); f(); guardar(chave, chave === "voz" ? vozAtual : velAtual);
   limparPre(); mostrarVoz(); fecharMenus(); if (t) tocar();
+  if (guiaFalando && guia.falar) falarGuia(guia.falar);
 }
 $("#btnVoz").onclick = () => abrirMenu("#popVoz", $("#btnVoz"));
 $("#btnVel").onclick = () => abrirMenu("#popVel", $("#btnVel"));
@@ -430,7 +432,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025041559", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025042202", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -962,7 +964,10 @@ function parar() {
   if (espera) { espera(false); espera = null; }
 }
 
-$("#tocar").onclick = () => (ouvindo ? pararOuvir() : tocando ? parar() : tocar());
+$("#tocar").onclick = () => {
+  if (modo === "guiado" && guia.etapa !== 2 && !ouvindo) return falandoGuia() || $("#tocar").classList.contains("carregando") ? calarGuia() : guia.falar && falarGuia(guia.falar);
+  ouvindo ? pararOuvir() : tocando ? parar() : tocar();
+};
 const pular = (f) => () => { const t = tocando; parar(); f(); if (t) tocar(); };
 $("#fraseAnt").onclick = pular(() => ir(pos - 1));
 $("#fraseProx").onclick = pular(() => ir(pos + 1));
@@ -1417,14 +1422,22 @@ function revisoesFeitas() {
 const PASSOS_GUIA = ["Visão geral", "Pergunta", "Leitura", "Recordar", "Conferir"];
 let guia = { etapa: 0, itens: [] };
 let falaGuia = 0;
+// fala da etapa (visão geral, pergunta…): o ▶/⏸ do player controla ela, e o player mostra ⏸ enquanto fala
 function falarGuia(texto) {
   const minha = ++falaGuia;
+  guia.falar = texto;
   audio.pause();
-  carregando(true);
-  sintetizar(texto).then((url) => { if (minha === falaGuia && modo === "guiado") { audio.src = url; audio.play().catch(() => {}); } })
-    .catch(() => {}).finally(() => carregando(false));
+  carregando(true); $("#tocar").innerHTML = PAUSA;
+  sintetizar(texto).then((url) => {
+    if (minha !== falaGuia || modo !== "guiado") return;
+    audio.src = url;
+    audio.onended = () => { if (minha === falaGuia) $("#tocar").innerHTML = PLAY; };
+    audio.onpause = null;
+    audio.play().catch(() => {});
+  }).catch(() => { $("#tocar").innerHTML = PLAY; }).finally(() => carregando(false));
 }
-const calarGuia = () => { falaGuia++; audio.pause(); carregando(false); };
+const calarGuia = () => { falaGuia++; audio.pause(); carregando(false); $("#tocar").innerHTML = PLAY; };
+const falandoGuia = () => !audio.paused && !audio.ended;
 function perguntaGuia(tp) {
   if (tp.perguntas?.[0]) return tp.perguntas[0].pergunta;
   if (tp.cartoes?.[0]) return /\?$/.test(tp.cartoes[0].frente) ? tp.cartoes[0].frente : `O que é “${tp.cartoes[0].frente}”?`;
@@ -1517,6 +1530,7 @@ function montarGuiado() {
     $("#guiaProxTopico") && ($("#guiaProxTopico").onclick = () => virarFolha("frente", () => iniciarGuiado(topico + 1)));
     $("#guiaFim") && ($("#guiaFim").onclick = () => { toast("Material concluído no estudo guiado! 🎉 As revisões seguem no seu plano.", [], 5000); document.body.classList.remove("guia-passo"); modo = "ler"; montar(topico, 0); });
   }
+  guia.falar = falar;
   if (falar) falarGuia(falar);
   $(".conteudo").scrollTop = 0;
 }
