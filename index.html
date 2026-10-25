@@ -291,6 +291,68 @@ body.modo-cartoes .player { visibility: hidden; }
   .miniatura { width: 44px; height: 44px; }
   .flash { min-height: 220px; padding: 22px 18px; } .flash .frente { font-size: 21px; }
 }
+/* ---------- tela de preparo do material novo ---------- */
+.preparo { max-width: 560px; margin: 6vh auto 0; background: var(--painel); border: 1px solid var(--borda); border-radius: 20px; box-shadow: var(--sombra);
+  padding: 32px 28px; display: grid; justify-items: center; text-align: center; gap: 10px; }
+.preparo.entra { animation: subir .3s ease; }
+.preparo .miniatura { width: 64px; height: 64px; border-radius: 16px; }
+.preparo h1 { font-size: 21px; margin: 6px 0 0; word-break: break-word; }
+.preparo .sub { color: var(--suave); margin: 0 0 8px; }
+.passos { list-style: none; margin: 4px 0 8px; padding: 0; display: grid; gap: 14px; text-align: left; width: 100%; }
+.passo { display: flex; gap: 12px; align-items: flex-start; color: var(--suave); }
+.passo div { display: grid; gap: 2px; }
+.passo b { font-weight: 600; }
+.passo small { font-size: 13px; }
+.marca-passo { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--borda); flex: none; display: grid; place-items: center; margin-top: 1px; }
+.passo.agora { color: var(--texto); }
+.passo.agora .marca-passo { border-color: var(--borda); border-top-color: var(--destaque); animation: girar .8s linear infinite; }
+.passo.feito .marca-passo { background: var(--ok); border-color: var(--ok); }
+.passo.feito .marca-passo::after { content: "✓"; color: var(--painel); font-size: 13px; font-weight: 700; }
+.passo.erro { color: var(--erro); }
+.passo.erro .marca-passo { border-color: var(--erro); }
+.passo.erro .marca-passo::after { content: "!"; font-weight: 700; }
+.preparo .progresso { width: 100%; background: var(--borda); }
+.esqueleto { width: 100%; display: grid; gap: 10px; margin-top: 14px; }
+.esqueleto i { display: block; height: 12px; border-radius: 6px; width: 100%;
+  background: linear-gradient(90deg, var(--fundo) 0%, var(--borda) 50%, var(--fundo) 100%); background-size: 200% 100%; animation: brilho 1.3s linear infinite; }
+.link { border: 0; background: none; color: var(--destaque); font-weight: 600; margin-top: 10px; padding: 6px; }
+.link:hover { text-decoration: underline; }
+.etiqueta.organizando { background: var(--destaque-fundo); color: var(--destaque-forte); border-color: transparent; display: inline-flex; align-items: center; gap: 6px; }
+.etiqueta.organizando::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: girar .8s linear infinite; }
+
+/* ---------- marcar dúvida ---------- */
+.btn-duvidas { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border: 1px solid var(--borda); background: var(--painel); border-radius: 9px; font-weight: 600; font-size: 13px; color: var(--suave); }
+.btn-duvidas:hover { border-color: var(--destaque); color: var(--destaque); }
+.btn-duvidas svg { width: 17px; height: 17px; }
+.btn-duvidas.tem { color: var(--pergunta); border-color: color-mix(in srgb, var(--pergunta) 45%, transparent); background: var(--pergunta-fundo); }
+.barra-marca { position: fixed; z-index: 42; display: flex; flex-wrap: wrap; gap: 2px; padding: 4px; background: var(--texto); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25); max-width: calc(100vw - 16px); }
+.barra-marca[hidden] { display: none; }
+.barra-marca:not([hidden]) { animation: aparecer .12s ease, descer .15s ease; }
+.barra-marca button { border: 0; background: none; color: var(--painel); padding: 7px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.barra-marca button:hover { background: color-mix(in srgb, var(--painel) 18%, transparent); }
+.frase.marcada { background: var(--pergunta-fundo); box-shadow: inset 0 -2px 0 var(--pergunta); }
+.frase.marcada.atual { background: var(--destaque-fundo); }
+.frase.marcada.piscar { animation: piscar 1.2s ease 2; }
+@keyframes piscar { 50% { background: color-mix(in srgb, var(--pergunta) 35%, transparent); } }
+.gaveta.direita { left: auto; right: 0; border-right: 0; border-left: 1px solid var(--borda); box-shadow: -12px 0 40px rgba(0,0,0,.15); animation: entrarDir .18s ease; }
+@keyframes entrarDir { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.lista-duvidas { overflow: auto; flex: 1; padding: 4px 16px 20px; display: grid; gap: 12px; align-content: start; }
+.duvida { border: 1px solid var(--borda); border-radius: 14px; padding: 12px 14px; display: grid; gap: 8px; background: var(--fundo); }
+.duvida.nova { animation: subir .3s ease; }
+.duvida .tipo { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--pergunta); }
+.duvida blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--pergunta); color: var(--suave); font: 15px/1.5 "Source Serif 4", Georgia, serif; }
+.duvida .resposta { font: 16px/1.6 "Source Serif 4", Georgia, serif; white-space: pre-wrap; }
+.duvida textarea { width: 100%; min-height: 70px; border: 1px solid var(--borda); border-radius: 10px; padding: 8px 10px; background: var(--painel); resize: vertical; }
+.duvida .acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.duvida .acoes button { border: 1px solid var(--borda); background: var(--painel); border-radius: 8px; padding: 5px 10px; font-size: 13px; font-weight: 500; }
+.duvida .acoes button:hover { border-color: var(--destaque); color: var(--destaque); }
+.duvida .acoes .perigo:hover { border-color: var(--erro); color: var(--erro); }
+.pensando { display: flex; align-items: center; gap: 10px; color: var(--suave); font-size: 14px; }
+.pensando::before { content: ""; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--borda); border-top-color: var(--destaque); animation: girar .8s linear infinite; }
+.vazio-duvidas { color: var(--suave); font-size: 14px; line-height: 1.6; padding: 8px 2px; }
+@media (max-width: 820px) { .btn-duvidas span { display: none; } .btn-duvidas { padding: 0 8px; } }
+
 /* ---------- animações ---------- */
 /* play: anel girando enquanto a voz gera a frase */
 .tocar { position: relative; transition: transform .15s, background .2s; }
@@ -360,7 +422,7 @@ body.modo-cartoes .player { visibility: hidden; }
         <button class="icone so-leitura" id="voltar" title="Voltar à biblioteca" aria-label="Voltar à biblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
         <button class="icone so-leitura" id="btnSumarioTopo" title="Sumário dos tópicos" aria-label="Sumário dos tópicos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
         <span class="titulo-material so-leitura" id="tituloMaterial"></span>
-        <span class="titulo-material so-biblioteca">Biblioteca</span>
+        <span class="titulo-material so-biblioteca" id="tituloTopo">Biblioteca</span>
       </div>
       <div class="player">
         <button class="btn-voz" id="btnVoz" title="Escolher voz" aria-haspopup="true"><span class="avatar" id="avatarVoz">D</span><span id="nomeVoz">Dora</span></button>
@@ -371,6 +433,7 @@ body.modo-cartoes .player { visibility: hidden; }
       </div>
       <div class="dir">
         <button class="btn-ia so-leitura" id="btnIaTopo" hidden><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg><span class="rotulo-ia">Organizar com IA</span></button>
+        <button class="btn-duvidas so-leitura" id="btnDuvidas" title="Minhas dúvidas: trechos marcados e explicações da IA"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span id="contaDuvidas">0</span></button>
         <button class="icone so-leitura" id="btnMais" title="Mais opções" aria-label="Mais opções" aria-haspopup="true"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
       </div>
     </header>
@@ -421,6 +484,22 @@ body.modo-cartoes .player { visibility: hidden; }
   </div>
 </div>
 
+<!-- marcar dúvida: barrinha que aparece ao selecionar um trecho -->
+<div class="barra-marca" id="barraMarca" hidden role="toolbar" aria-label="Marcar trecho">
+  <button data-acao="explicar">Explicar melhor</button>
+  <button data-acao="exemplo">Dar exemplo</button>
+  <button data-acao="simples">Mais simples</button>
+  <button data-acao="cartao">Virar flash card</button>
+  <button data-acao="comentar">Comentar</button>
+</div>
+<!-- minhas dúvidas -->
+<div class="fundo-gaveta" id="fundoDuvidas" hidden></div>
+<aside class="gaveta direita" id="duvidas" hidden role="dialog" aria-label="Minhas dúvidas">
+  <div class="gaveta-cab"><div><b>Minhas dúvidas</b><small id="duvidasInfo">Selecione um trecho do texto para marcar</small></div>
+    <button class="icone" id="fecharDuvidas" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+  <div class="lista-duvidas" id="listaDuvidas"></div>
+</aside>
+
 <!-- sumário dos tópicos -->
 <div class="fundo-gaveta" id="fundoSumario" hidden></div>
 <aside class="gaveta" id="sumario" hidden role="dialog" aria-label="Sumário">
@@ -446,6 +525,6 @@ body.modo-cartoes .player { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261025023257"></script>
+<script type="module" src="app.js?v=20261025024134"></script>
 </body>
 </html>

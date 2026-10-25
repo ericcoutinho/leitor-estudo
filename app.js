@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025023257";
+import { paraFala } from "./texto.js?v=20261025024134";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -140,16 +140,20 @@ async function processar(e, chave) {
   const total = e.partes_total;
   while (e.pendentes.length) {
     const n = total - e.pendentes.length + 1;
-    const aviso = (t) => (st.textContent = `Parte ${n} de ${total}: ${t}`);
+    // o andamento aparece na tela de preparo (se a pessoa estiver nela), no cartão da biblioteca e no topo
+    const aviso = (t) => { andamento.set(e.id, { n, total, texto: t }); if (preparo?.id === e.id) mostrarPreparo(); else if (estudo) st.textContent = `“${e.titulo}”, parte ${n} de ${total}: ${t}`; else carregarLista(); };
     aviso("organizando…");
     try {
       const o = await organizar(e.pendentes[0], chave, aviso);
       e.topicos.push(...o.topicos); e.ingles = [...new Set([...(e.ingles || []), ...o.ingles])];
       e.pendentes.shift();
       salvarEstudo(e); carregarLista();
-      if (estudo?.id === e.id) { estudo = e; const p = pos, t = topico; if (!tocando) montar(t, p); }
+      if (preparo?.id === e.id) { st.textContent = ""; abrir(e.id); } // 1ª parte pronta: já dá para começar a ler
+      else if (estudo?.id === e.id) { estudo = e; const p = pos, t = topico; if (!tocando) montar(t, p); }
     } catch (err) {
+      andamento.delete(e.id);
       salvarEstudo(e); carregarLista();
+      if (preparo?.id === e.id) { mostrarPreparo({ erro: err.message }); return false; }
       st.className = "estado erro";
       st.textContent = e.topicos.length
         ? `Organizei ${n - 1} de ${total} partes e parei: ${err.message}. O que já foi organizado está salvo; abra o material e toque em “Continuar organizando” mais tarde.`
@@ -157,20 +161,21 @@ async function processar(e, chave) {
       return false;
     }
   }
-  st.textContent = "";
+  st.textContent = ""; andamento.delete(e.id);
   return true;
 }
 
 async function enviar(arquivo) {
   if (!arquivo) return;
   fecharModais();
-  const st = $("#estado"); st.className = "estado";
+  const st = $("#estado"); st.className = "estado"; st.textContent = "";
+  const titulo = arquivo.name.replace(/\.[^.]+$/, "");
+  mostrarPreparo({ id: null, titulo, etapa: "lendo", erro: null }); // tela do material novo desde o primeiro instante
   try {
-    st.textContent = "Lendo o arquivo…";
     const texto = limpar(await extrair(arquivo));
     if (texto.length < 50) throw new Error("não achei texto no arquivo (PDF escaneado? precisa de OCR)");
-    await criarMaterial(arquivo.name.replace(/\.[^.]+$/, ""), texto, arquivo.name.toLowerCase().split(".").pop());
-  } catch (err) { st.className = "estado erro"; st.textContent = "Erro: " + err.message; }
+    await criarMaterial(titulo, texto, arquivo.name.toLowerCase().split(".").pop());
+  } catch (err) { if (preparo && !preparo.id) mostrarPreparo({ erro: err.message }); else { st.className = "estado erro"; st.textContent = "Erro: " + err.message; } }
 }
 
 async function criarMaterial(titulo, texto, tipo) {
@@ -186,11 +191,51 @@ async function criarMaterial(titulo, texto, tipo) {
     return abrir(e.id);
   }
   e.pendentes = blocos(texto, 20000); e.partes_total = e.pendentes.length;
-  salvarEstudo(e); carregarLista();
+  salvarEstudo(e);
   organizando.add(e.id);
-  const ok = await processar(e, chave);
+  mostrarPreparo({ id: e.id, titulo, etapa: "organizando", palavras: texto.split(/\s+/).length, erro: null });
+  await processar(e, chave);
   organizando.delete(e.id);
-  if (e.topicos.length && (ok || estudo?.id !== e.id)) abrir(e.id);
+  carregarLista();
+}
+
+// ---------- tela de preparo do material novo ----------
+// Em vez de deixar a pessoa no material antigo com um aviso pequeno no topo, a tela vai para o material novo e mostra
+// as etapas. Quando a 1ª parte fica pronta, o material abre; as outras continuam chegando enquanto ela lê.
+let preparo = null; // { id, titulo, etapa, palavras, erro }
+const andamento = new Map(); // id → { n, total, texto } da organização em curso (também aparece na biblioteca)
+function mostrarPreparo(mudar = {}) {
+  parar(); estudo = null;
+  preparo = { ...preparo, ...mudar };
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
+  $("#navBiblioteca").classList.remove("ativo"); $("#linhaProgresso").style.width = "0";
+  const a = preparo.id ? andamento.get(preparo.id) : null;
+  const pct = a ? Math.round(((a.n - 1) / a.total) * 100) : 0;
+  const passo = (estado, titulo, detalhe = "") => `<li class="passo ${estado}"><span class="marca-passo"></span><div><b>${titulo}</b>${detalhe ? `<small>${detalhe}</small>` : ""}</div></li>`;
+  const lido = preparo.etapa !== "lendo";
+  $("#tituloTopo").textContent = "Novo material";
+  const primeira = !$(".preparo"); // a animação de entrada só na primeira vez (a tela se redesenha a cada parte)
+  $("#coluna").innerHTML = `<div class="preparo ${primeira ? "entra" : ""}">
+    <span class="miniatura">${ICONE_TIPO.pdf}</span>
+    <h1>${esc(preparo.titulo)}</h1>
+    <p class="sub">${preparo.erro ? "Não deu para organizar agora." : "Preparando o seu material de estudo…"}</p>
+    <ol class="passos">
+      ${passo(lido ? "feito" : "agora", lido ? "Arquivo lido" : "Lendo o arquivo…", lido && preparo.palavras ? `${preparo.palavras.toLocaleString("pt-BR")} palavras` : "")}
+      ${passo(preparo.erro ? "erro" : !lido ? "" : "agora", "Organizando com IA", preparo.erro ? esc(preparo.erro) : a ? `Parte ${a.n} de ${a.total}: ${esc(a.texto)}` : "Dividindo em tópicos, resumo, perguntas e flash cards")}
+      ${passo("", "Pronto para estudar", "Abre sozinho assim que a primeira parte ficar pronta")}
+    </ol>
+    ${!preparo.erro && lido ? `<div class="progresso"><i style="width:${Math.max(6, pct)}%"></i></div>` : ""}
+    ${preparo.erro ? `<div class="linha-botoes" style="justify-content:center">${preparo.id ? `<button class="sec" id="prepTentar">Tentar de novo</button>` : ""}<button class="pri" id="prepVoltar">Voltar à biblioteca</button></div>`
+      : `<div class="esqueleto" aria-hidden="true"><i></i><i></i><i style="width:80%"></i><i style="width:60%"></i></div>
+         <button class="link" id="prepVoltar">Voltar à biblioteca enquanto organiza</button>`}
+  </div>`;
+  $("#prepVoltar").onclick = () => mostrarBiblioteca();
+  $("#prepTentar") && ($("#prepTentar").onclick = async () => {
+    const e = lembrar("estudo:" + preparo.id, null), chave = pedirChave();
+    if (!e || !chave) return;
+    organizando.add(e.id); mostrarPreparo({ erro: null });
+    await processar(e, chave); organizando.delete(e.id); carregarLista();
+  });
 }
 
 // ---------- janelas, menus e biblioteca ----------
@@ -278,7 +323,8 @@ const ICONE_TIPO = {
 };
 
 function mostrarBiblioteca() {
-  parar(); estudo = null; modo = "ler";
+  parar(); estudo = null; modo = "ler"; preparo = null;
+  $("#tituloTopo").textContent = "Biblioteca";
   document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
   $("#navBiblioteca").classList.add("ativo"); $("#linhaProgresso").style.width = "0";
   const lista = indice();
@@ -291,7 +337,7 @@ function mostrarBiblioteca() {
       return `<div class="material" role="button" tabindex="0" data-id="${esc(e.id)}">
         <span class="miniatura">${ICONE_TIPO[e.tipo === "pdf" ? "pdf" : "txt"]}</span>
         <span class="info"><b>${esc(e.titulo)}</b>
-          <small><span class="etiqueta ${ia ? "ia" : ""}">${ia ? "Organizado com IA" : "Texto original"}</span> · ${e.topicos} tópicos${e.faltam ? ` · faltam ${e.faltam} partes` : ""} · ${esc(e.criado)}${pct ? ` · ${pct}% lido` : ""}</small>
+          <small>${andamento.has(e.id) ? `<span class="etiqueta organizando">Organizando parte ${andamento.get(e.id).n} de ${andamento.get(e.id).total}…</span>` : `<span class="etiqueta ${ia ? "ia" : ""}">${ia ? "Organizado com IA" : "Texto original"}</span>`} · ${e.topicos} tópicos${e.faltam ? ` · faltam ${e.faltam} partes` : ""} · ${esc(e.criado)}${pct ? ` · ${pct}% lido` : ""}</small>
           ${pct ? `<span class="barrinha"><i style="width:${pct}%"></i></span>` : ""}</span>
         <button class="apagar-item" data-apagar="${esc(e.id)}" title="Apagar">Apagar</button></div>`;
     }).join("")}</div><div style="margin-top:18px">${soltar}</div>` : soltar);
@@ -312,10 +358,10 @@ function apagarMaterial(id) {
   guardar("estudos", indice().filter((e) => e.id !== id));
 }
 // a lista só aparece na tela da biblioteca; nas outras telas não há o que atualizar
-function carregarLista() { if (!estudo) mostrarBiblioteca(); }
+function carregarLista() { if (!estudo && !preparo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025023257", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025024134", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -328,6 +374,7 @@ function avisoVoz(titulo, detalhe, pct) {
 }
 worker.onmessage = ({ data }) => {
   if (data.tipo === "progresso") {
+    if (data.total < 1048576) return; // voz já guardada no navegador: não há download para mostrar
     const pct = Math.min(100, Math.round((data.carregado / data.total) * 100));
     avisoVoz(`Baixando a voz: ${mb(data.carregado)} de ${mb(data.total)} MB (${pct}%)`,
       "Só acontece na primeira vez. Depois a voz fica guardada neste navegador e abre na hora.", pct);
@@ -382,6 +429,7 @@ function abrir(id) {
   parar();
   estudo = lembrar("estudo:" + id, null);
   if (!estudo) return;
+  preparo = null;
   modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "na-biblioteca");
   $("#navBiblioteca").classList.remove("ativo"); $("#tituloMaterial").textContent = estudo.titulo;
   const salvo = lembrar("pos:" + id, { topico: 0, pos: 0 });
@@ -461,12 +509,15 @@ function montar(t, p = 0) {
   }
   html += `</div><button class="apagar" id="apagar">Apagar este material</button>`;
   $("#coluna").innerHTML = html;
+  $("#barraMarca").hidden = true;
+  pintarMarcas();
   ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
   $("#topAnt").onclick = () => irTopico(topico - 1);
   $("#topProx").onclick = () => irTopico(topico + 1);
   $("#abrirSumario").onclick = abrirSumario;
-  document.querySelectorAll(".frase").forEach((f) => (f.onclick = () => { parar(); ir(+f.dataset.i); tocar(); })); // tocar numa frase lê dali
+  // tocar numa frase lê dali (mas não quando a pessoa está selecionando um trecho para marcar)
+  document.querySelectorAll(".frase").forEach((f) => (f.onclick = () => { if (!getSelection().isCollapsed) return; parar(); ir(+f.dataset.i); tocar(); }));
   document.querySelectorAll(".r.oculta").forEach((r) => (r.onclick = () => r.classList.remove("oculta")));
   $("#apagar").onclick = () => {
     const b = $("#apagar");
@@ -509,6 +560,177 @@ $("#fecharSumario").onclick = fecharSumario;
 $("#fundoSumario").onclick = fecharSumario;
 $("#btnSumarioTopo").onclick = abrirSumario;
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharSumario(); });
+
+// ---------- marcar dúvida ----------
+// Selecionar um trecho da folha mostra a barrinha; a escolha marca as frases e cria um item em "Minhas dúvidas".
+// A IA explica (ou vira flash card) usando o tópico como contexto. Fica salvo em estudo.marcas.
+const PEDIDOS = {
+  explicar: ["Explicar melhor", "Explique este trecho de forma mais completa e clara, como um professor, ligando-o ao resto do tópico."],
+  exemplo: ["Dar exemplo", "Dê um ou dois exemplos concretos do dia a dia ou do trabalho que ilustrem este trecho."],
+  simples: ["Mais simples", "Explique este trecho com palavras bem simples, como para alguém que nunca estudou o assunto, sem termos técnicos."],
+  pergunta: ["Pergunta", ""],
+};
+let selecaoAtual = null;
+function frasesDaSelecao(sel) {
+  const r = sel.getRangeAt(0);
+  return [...document.querySelectorAll(".folha .frase")].filter((f) => r.intersectsNode(f)).filter((f) => !f.closest(".pergunta"));
+}
+document.addEventListener("selectionchange", () => {
+  clearTimeout(selecaoAtual?.tm);
+  const tm = setTimeout(() => {
+    const sel = getSelection();
+    const barra = $("#barraMarca");
+    if (!estudo || modo !== "ler" || !sel.rangeCount || sel.isCollapsed || sel.toString().trim().length < 3) { barra.hidden = true; return; }
+    const frasesSel = frasesDaSelecao(sel);
+    if (!frasesSel.length) { barra.hidden = true; return; }
+    selecaoAtual = { texto: sel.toString().trim().replace(/\s+/g, " "), frases: frasesSel.map((f) => f.textContent.trim()) };
+    barra.hidden = false;
+    const r = sel.getRangeAt(0).getBoundingClientRect(), w = barra.offsetWidth, h = barra.offsetHeight;
+    barra.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
+    // no celular o menu do próprio sistema aparece em cima da seleção: a barrinha vai embaixo
+    const embaixo = matchMedia("(pointer: coarse)").matches || r.top - h - 10 < 70;
+    barra.style.top = (embaixo ? Math.min(innerHeight - h - 90, r.bottom + 10) : r.top - h - 10) + "px";
+  }, 250);
+  selecaoAtual = { ...(selecaoAtual || {}), tm };
+});
+document.querySelectorAll("#barraMarca button").forEach((b) => {
+  b.onmousedown = (e) => e.preventDefault(); // não perder a seleção ao clicar
+  b.onclick = () => marcar(b.dataset.acao);
+});
+
+function marcar(acao) {
+  if (!selecaoAtual?.texto) return;
+  $("#barraMarca").hidden = true;
+  const m = { id: String(Date.now()), topico, trecho: selecaoAtual.texto, frases: selecaoAtual.frases, acao, criado: new Date().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) };
+  getSelection().removeAllRanges();
+  (estudo.marcas ||= []).push(m);
+  salvarEstudo(estudo);
+  pintarMarcas();
+  abrirDuvidas(m.id);
+  if (acao === "comentar") return;
+  responderMarca(m);
+}
+
+async function responderMarca(m, pergunta) {
+  const chave = pedirChave();
+  if (!chave) { m.erro = "Coloque a chave do Gemini para a IA responder."; salvarEstudo(estudo); return listarDuvidas(); }
+  const e = estudo, tp = e.topicos[m.topico] || {};
+  m.carregando = true; delete m.erro; listarDuvidas(m.id);
+  const contexto = `TÓPICO: ${tp.titulo}\n${tp.texto}\n\nTRECHO MARCADO PELO ESTUDANTE: "${m.trecho}"`;
+  try {
+    if (m.acao === "cartao") {
+      const o = await gemini(`Crie UM flash card para estudar o trecho marcado, em português do Brasil: frente curta (pergunta direta ou conceito) e verso com a resposta em uma ou duas frases.\n\n${contexto}\n\nResponda SOMENTE com JSON: {"frente":"...","verso":"..."}`,
+        chave, () => {}, (o) => o.frente && o.verso);
+      (tp.cartoes ||= []).push({ frente: o.frente, verso: o.verso });
+      m.resposta = `Flash card criado:\n${o.frente}\n→ ${o.verso}`;
+    } else {
+      const pedido = m.acao === "pergunta" ? `Responda a pergunta do estudante sobre o trecho: "${pergunta || m.pergunta}"` : PEDIDOS[m.acao][1];
+      const o = await gemini(`Você é um professor ajudando alguém a estudar. ${pedido}\nUse o tópico como contexto. Responda em português do Brasil, em texto corrido para ser OUVIDO (sem listas, asteriscos ou markdown), de 3 a 6 frases.\n\n${contexto}\n\nResponda SOMENTE com JSON: {"resposta":"..."}`,
+        chave, () => {}, (o) => typeof o.resposta === "string" && o.resposta.trim());
+      m.resposta = o.resposta.trim();
+    }
+  } catch (err) { m.erro = "A IA não respondeu: " + err.message; }
+  delete m.carregando;
+  salvarEstudo(e);
+  if (estudo?.id === e.id) {
+    listarDuvidas(m.id);
+    const a = $(".abas"); if (a && m.acao === "cartao") { a.outerHTML = abas(); ligarAbas(); } // atualiza "Flash cards (N)"
+  }
+}
+// ouvir a explicação da IA com a mesma voz da leitura
+function ouvirTexto(texto) {
+  parar();
+  const minha = ++falaCartao;
+  carregando(true);
+  sintetizar(texto).then((url) => { if (minha === falaCartao) { audio.src = url; audio.play().catch(() => {}); } })
+    .catch(() => {}).finally(() => carregando(false));
+}
+
+// marca as frases do tópico aberto que fazem parte de algum trecho marcado
+function pintarMarcas() {
+  if (!estudo) return;
+  const minhas = (estudo.marcas || []).filter((m) => m.topico === topico);
+  const textos = new Map(); // frase → ids das marcas (uma frase pode ter várias dúvidas)
+  minhas.forEach((m) => m.frases.forEach((f) => textos.set(f, [...(textos.get(f) || []), m.id])));
+  document.querySelectorAll(".folha .frase").forEach((f) => {
+    const ids = textos.get(f.textContent.trim());
+    f.classList.toggle("marcada", !!ids);
+    if (ids) f.dataset.marca = ids.join(" "); else delete f.dataset.marca;
+  });
+  const n = (estudo.marcas || []).length;
+  $("#contaDuvidas").textContent = n;
+  $("#btnDuvidas").classList.toggle("tem", n > 0);
+}
+
+function listarDuvidas(novo) {
+  const marcas = [...(estudo.marcas || [])].reverse();
+  $("#duvidasInfo").textContent = marcas.length ? `${marcas.length} trecho${marcas.length > 1 ? "s" : ""} marcado${marcas.length > 1 ? "s" : ""}` : "Selecione um trecho do texto para marcar";
+  $("#listaDuvidas").innerHTML = marcas.length ? marcas.map((m) => {
+    const tipo = m.acao === "comentar" ? "Comentário" : m.acao === "cartao" ? "Flash card" : m.acao === "pergunta" ? "Pergunta: " + esc(m.pergunta || "") : PEDIDOS[m.acao]?.[0] || "Dúvida";
+    const corpo = m.acao === "comentar"
+      ? `<textarea data-coment="${m.id}" placeholder="Escreva sua anotação…">${esc(m.comentario || "")}</textarea>`
+      : m.carregando ? `<div class="pensando">A IA está ${m.acao === "cartao" ? "criando o cartão" : "explicando"}…</div>`
+      : m.erro ? `<div class="resposta" style="color:var(--erro)">${esc(m.erro)}</div>`
+      : `<div class="resposta">${esc(m.resposta || "")}</div>`;
+    return `<div class="duvida ${m.id === novo ? "nova" : ""}" data-id="${m.id}">
+      <span class="tipo">${tipo} · tópico ${m.topico + 1}</span>
+      <blockquote>${esc(m.trecho.length > 220 ? m.trecho.slice(0, 220) + "…" : m.trecho)}</blockquote>${corpo}
+      <div class="acoes">
+        ${m.resposta && m.acao !== "cartao" ? `<button data-ouvir="${m.id}">▶ Ouvir</button>` : ""}
+        <button data-ir="${m.id}">Ir ao trecho</button>
+        ${m.acao !== "comentar" && !m.carregando ? `<button data-perguntar="${m.id}">Perguntar mais</button>` : ""}
+        ${m.erro ? `<button data-refazer="${m.id}">Tentar de novo</button>` : ""}
+        <button class="perigo" data-tirar="${m.id}">Apagar</button>
+      </div></div>`;
+  }).join("") : `<div class="vazio-duvidas">Não entendeu alguma parte? <b>Selecione o trecho no texto</b> e escolha “Explicar melhor”, “Dar exemplo”, “Mais simples”, “Virar flash card” ou “Comentar”. Tudo fica guardado aqui para revisar antes da prova.</div>`;
+  const acha = (id) => estudo.marcas.find((m) => m.id === id);
+  document.querySelectorAll("[data-coment]").forEach((t) => (t.oninput = () => { acha(t.dataset.coment).comentario = t.value; salvarEstudo(estudo); }));
+  document.querySelectorAll("[data-ouvir]").forEach((b) => (b.onclick = () => ouvirTexto(acha(b.dataset.ouvir).resposta)));
+  document.querySelectorAll("[data-refazer]").forEach((b) => (b.onclick = () => responderMarca(acha(b.dataset.refazer))));
+  document.querySelectorAll("[data-tirar]").forEach((b) => (b.onclick = () => {
+    estudo.marcas = estudo.marcas.filter((m) => m.id !== b.dataset.tirar); salvarEstudo(estudo); pintarMarcas(); listarDuvidas();
+  }));
+  // "Perguntar mais": abre um campo dentro do próprio cartão (sem janela do navegador)
+  document.querySelectorAll("[data-perguntar]").forEach((b) => (b.onclick = () => {
+    const cartao = b.closest(".duvida");
+    if (cartao.querySelector(".nova-pergunta")) return cartao.querySelector(".nova-pergunta textarea").focus();
+    b.closest(".acoes").insertAdjacentHTML("beforebegin", `<div class="nova-pergunta" style="display:grid;gap:6px">
+      <textarea placeholder="O que você quer perguntar sobre este trecho?"></textarea>
+      <div class="acoes"><button class="enviar">Perguntar à IA</button><button class="cancelar">Cancelar</button></div></div>`);
+    const caixa = cartao.querySelector(".nova-pergunta"), campo = caixa.querySelector("textarea");
+    campo.focus();
+    caixa.querySelector(".cancelar").onclick = () => caixa.remove();
+    const enviar = () => {
+      const pergunta = campo.value.trim();
+      if (!pergunta) return campo.focus();
+      const base = acha(b.dataset.perguntar);
+      const m = { id: String(Date.now()), topico: base.topico, trecho: base.trecho, frases: base.frases, acao: "pergunta", pergunta, criado: new Date().toLocaleString("pt-BR") };
+      estudo.marcas.push(m); salvarEstudo(estudo); pintarMarcas(); responderMarca(m, pergunta);
+    };
+    caixa.querySelector(".enviar").onclick = enviar;
+    campo.onkeydown = (ev) => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); enviar(); } };
+  }));
+  document.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => {
+    const m = acha(b.dataset.ir);
+    fecharDuvidas();
+    if (modo !== "ler") { modo = "ler"; document.body.classList.remove("modo-cartoes"); }
+    if (m.topico !== topico || !document.querySelector(`.frase[data-marca~="${m.id}"]`)) { parar(); montar(m.topico); }
+    const f = document.querySelector(`.frase[data-marca~="${m.id}"]`);
+    f?.scrollIntoView({ block: "center", behavior: "smooth" });
+    document.querySelectorAll(`.frase[data-marca~="${m.id}"]`).forEach((x) => { x.classList.remove("piscar"); void x.offsetWidth; x.classList.add("piscar"); });
+  }));
+}
+function abrirDuvidas(novo) {
+  if (!estudo) return;
+  fecharMenus(); fecharSumario();
+  listarDuvidas(novo);
+  $("#duvidas").hidden = $("#fundoDuvidas").hidden = false;
+}
+function fecharDuvidas() { $("#duvidas").hidden = $("#fundoDuvidas").hidden = true; }
+$("#btnDuvidas").onclick = () => abrirDuvidas();
+$("#fecharDuvidas").onclick = fecharDuvidas;
+$("#fundoDuvidas").onclick = fecharDuvidas;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { fecharDuvidas(); $("#barraMarca").hidden = true; } });
 
 function ir(i) {
   pos = Math.max(0, Math.min(i, fila.length - 1));
