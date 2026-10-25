@@ -69,6 +69,7 @@ const ABREVIACOES = [
 ];
 
 export function normalizar(texto) {
+  texto = texto.normalize("NFC"); // "c" + cedilha solta vira "ç" (senão a voz lê sem cedilha)
   for (const [re, falado] of ABREVIACOES) texto = texto.replace(re, falado);
   texto = texto.replace(/\b([A-Z]{2,})\/([A-Z]{2,})\b/g, "$1 barra $2");
   texto = texto.replace(new RegExp(String.raw`\b(${NUM})\/((?:19|20)\d{2})\b`, "g"), "$1 de $2");

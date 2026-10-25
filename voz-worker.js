@@ -22,13 +22,18 @@ async function fonetizar(texto) {
 async function carregar() {
   let device = "wasm";
   try { if (navigator.gpu && (await navigator.gpu.requestAdapter())) device = "webgpu"; } catch {}
+  const arquivos = {}; // soma o download de todos os arquivos do modelo (o maior é o .onnx)
   tts = await KokoroTTS.from_pretrained(MODELO, {
     dtype: device === "webgpu" ? "fp32" : "q8",
     device,
     progress_callback: (p) => {
-      if (p.status === "progress" && p.file?.endsWith(".onnx")) postMessage({ tipo: "progresso", pct: Math.round(p.progress) });
+      if (p.status !== "progress" || !p.total) return;
+      arquivos[p.file] = [p.loaded, p.total];
+      const [carregado, total] = Object.values(arquivos).reduce((s, [l, t]) => [s[0] + l, s[1] + t], [0, 0]);
+      postMessage({ tipo: "progresso", carregado, total });
     },
   });
+  postMessage({ tipo: "fase", texto: "Preparando a voz no seu aparelho…" });
   await gerar("Pronto.", "pf_dora", 1); // aquecimento: a 1ª geração compila tudo
   postMessage({ tipo: "pronto", device });
 }

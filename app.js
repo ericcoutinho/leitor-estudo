@@ -25,8 +25,15 @@ async function extrair(arquivo) {
   if (nome.endsWith(".docx")) return (await window.mammoth.extractRawText({ arrayBuffer: dados })).value;
   return new TextDecoder().decode(dados);
 }
+// PDF costuma guardar "ç" e "ã" em pedaços: letra + sinal combinado, ou sinal solto antes/depois da letra
+// (PDF de LaTeX: "Identifica¸c˜ao"). A tela junta, mas a voz lê só a letra — aqui vira "ç"/"ã" de verdade.
+const SINAIS = [["¸", "̧", "cC"], ["˜", "̃", "aoAO"], ["´", "́", "aeiouAEIOU"],
+  ["ˆ", "̂", "aeoAEO"], ["ˋ", "̀", "aA"], ["¨", "̈", "uU"]];
+const acentos = (t) => SINAIS.reduce((s, [solto, comb, letras]) => s
+  .replace(new RegExp(`${solto} ?([${letras}])`, "g"), `$1${comb}`)   // sinal antes da letra (LaTeX)
+  .replace(new RegExp(`([${letras}]) ?${solto}`, "g"), `$1${comb}`), t).normalize("NFC");
 // junta as linhas de um mesmo parágrafo do PDF; linha curta (título) vira parágrafo próprio
-const limpar = (t) => t.replace(/\r/g, "").replace(/-\n(\p{L})/gu, "$1").replace(/^([^\n]{1,70})\n(?!\n)/gm, "$1\n\n")
+const limpar = (t) => acentos(t).replace(/\r/g, "").replace(/-\n(\p{L})/gu, "$1").replace(/^([^\n]{1,70})\n(?!\n)/gm, "$1\n\n")
   .replace(/(?<![.!?:;\n])\n(?!\n)/g, " ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 function blocos(texto, tamanho) {
   const saida = []; let atual = "";
@@ -51,27 +58,55 @@ Organize o trecho abaixo em tópicos, na ordem lógica do conteúdo. Regras:
 Responda SOMENTE com JSON válido neste formato:
 {"topicos":[{"titulo":"...","texto":"...","resumo":"...","perguntas":[{"pergunta":"...","resposta":"..."}]}],"pronuncia":{}}`;
 const MODELOS = ["gemini-flash-lite-latest", "gemini-flash-latest"];
+const ESPERAS = [5, 15, 30, 60]; // segundos entre as tentativas quando o Gemini está ocupado (503) ou no limite por minuto
+const dormir = (s) => new Promise((r) => setTimeout(r, s * 1000));
 
-async function organizar(trecho, chave) {
-  const erros = [];
-  for (const modelo of MODELOS) {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(chave)}`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: INSTRUCAO + "\n\nTRECHO:\n" + trecho }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.3 } }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (r.ok) {
+// lê o motivo do erro do Gemini: chave recusada, cota do DIA acabou (não adianta repetir) ou espera sugerida
+function motivo(status, j) {
+  const det = j?.error?.details || [];
+  const quota = det.find((d) => d["@type"]?.endsWith("QuotaFailure"))?.violations?.map((v) => v.quotaId).join(" ") || "";
+  const espera = parseFloat(det.find((d) => d["@type"]?.endsWith("RetryInfo"))?.retryDelay) || 0;
+  if (status === 400 || status === 403) return { fatal: "a chave do Gemini não foi aceita; confira em “Chave da IA”" };
+  if (status === 429 && /PerDay/i.test(quota)) return { dia: true, texto: "a cota grátis do dia acabou" };
+  if (status === 429) return { espera, texto: "limite de pedidos por minuto" };
+  if (status >= 500) return { espera, texto: status === 503 ? "o Gemini está sobrecarregado" : `erro ${status} no Gemini` };
+  return { espera, texto: `erro ${status}` };
+}
+
+async function organizar(trecho, chave, aviso) {
+  const esgotados = new Set();
+  let ultimo = "";
+  for (let tentativa = 0; tentativa <= ESPERAS.length; tentativa++) {
+    let espera = 0;
+    for (const modelo of MODELOS.filter((m) => !esgotados.has(m))) {
+      let r, j;
       try {
-        const bruto = j.candidates[0].content.parts[0].text;
-        const o = JSON.parse(bruto.slice(bruto.indexOf("{"), bruto.lastIndexOf("}") + 1));
-        return { topicos: o.topicos, pronuncia: o.pronuncia || {} };
-      } catch { erros.push(`${modelo}: resposta fora do formato`); continue; }
+        r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${encodeURIComponent(chave)}`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: INSTRUCAO + "\n\nTRECHO:\n" + trecho }] }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0.3 } }),
+        });
+        j = await r.json().catch(() => ({}));
+      } catch { ultimo = "sem conexão com o Gemini"; continue; }
+      if (r.ok) {
+        try {
+          const bruto = j.candidates[0].content.parts[0].text;
+          const o = JSON.parse(bruto.slice(bruto.indexOf("{"), bruto.lastIndexOf("}") + 1));
+          if (Array.isArray(o.topicos) && o.topicos.length) return { topicos: o.topicos, pronuncia: o.pronuncia || {} };
+        } catch {}
+        ultimo = "o Gemini respondeu fora do formato"; continue;
+      }
+      const m = motivo(r.status, j);
+      if (m.fatal) throw new Error(m.fatal);
+      if (m.dia) esgotados.add(modelo);
+      ultimo = m.texto; espera = Math.max(espera, m.espera || 0);
     }
-    if (r.status === 400 || r.status === 403) throw new Error("a chave do Gemini não foi aceita; confira em “Chave da IA”");
-    erros.push(r.status === 429 ? `${modelo}: cota grátis do dia acabou` : `${modelo}: erro ${r.status}`);
+    if (esgotados.size === MODELOS.length) throw new Error("a cota grátis do Gemini acabou por hoje");
+    if (tentativa === ESPERAS.length) break;
+    const s = Math.ceil(Math.max(espera, ESPERAS[tentativa]));
+    for (let k = s; k > 0; k--) { aviso(`${ultimo[0].toUpperCase() + ultimo.slice(1)}; tentando de novo em ${k} s…`); await dormir(1); }
   }
-  throw new Error(erros.join("; ") + ". Tente mais tarde ou desmarque “Organizar com IA”.");
+  throw new Error(ultimo);
 }
 
 function soLer(texto) {
@@ -82,7 +117,35 @@ function soLer(texto) {
 const indice = () => lembrar("estudos", []);
 function salvarEstudo(e) {
   if (!guardar("estudo:" + e.id, e)) throw new Error("o navegador não deixou salvar (espaço cheio ou modo anônimo)");
-  guardar("estudos", [{ id: e.id, titulo: e.titulo, criado: e.criado, organizado_por: e.organizado_por, topicos: e.topicos.length }, ...indice()]);
+  const resumo = { id: e.id, titulo: e.titulo, criado: e.criado, organizado_por: e.organizado_por, topicos: e.topicos.length, faltam: e.pendentes?.length || 0 };
+  guardar("estudos", [resumo, ...indice().filter((x) => x.id !== e.id)]);
+}
+
+// organiza parte por parte e salva a cada parte pronta; se o Gemini falhar, guarda o que falta para continuar depois
+async function processar(e, chave) {
+  const st = $("#estado"); st.className = "estado";
+  const total = e.partes_total;
+  while (e.pendentes.length) {
+    const n = total - e.pendentes.length + 1;
+    const aviso = (t) => (st.textContent = `Parte ${n} de ${total}: ${t}`);
+    aviso("organizando…");
+    try {
+      const o = await organizar(e.pendentes[0], chave, aviso);
+      e.topicos.push(...o.topicos); Object.assign(e.pronuncia, o.pronuncia);
+      e.pendentes.shift();
+      salvarEstudo(e); carregarLista();
+      if (estudo?.id === e.id) { estudo = e; const p = pos, t = topico; if (!tocando) montar(t, p); }
+    } catch (err) {
+      salvarEstudo(e); carregarLista();
+      st.className = "estado erro";
+      st.textContent = e.topicos.length
+        ? `Organizei ${n - 1} de ${total} partes e parei: ${err.message}. O que já foi organizado está salvo; abra o material e toque em “Continuar organizando” mais tarde.`
+        : `Não consegui organizar: ${err.message}. Tente de novo em alguns minutos, ou desmarque “Organizar com IA” para ouvir o texto como está.`;
+      return false;
+    }
+  }
+  st.textContent = "";
+  return true;
 }
 
 async function enviar(arquivo) {
@@ -94,23 +157,22 @@ async function enviar(arquivo) {
     if (texto.length < 50) throw new Error("não achei texto no arquivo (PDF escaneado? precisa de OCR)");
     const chave = $("#chave").value.trim();
     const usarIa = $("#usarIa").checked && chave;
-    let topicos = [], pron = {};
-    if (usarIa) {
-      const partes = blocos(texto, 12000);
-      for (let i = 0; i < partes.length; i++) {
-        st.textContent = `Organizando parte ${i + 1} de ${partes.length}…`;
-        const o = await organizar(partes[i], chave);
-        topicos.push(...o.topicos); Object.assign(pron, o.pronuncia);
-      }
-    } else topicos = soLer(texto);
     const agora = new Date();
-    const estudo = { id: String(agora.getTime()), titulo: arquivo.name.replace(/\.[^.]+$/, ""),
+    const e = { id: String(agora.getTime()), titulo: arquivo.name.replace(/\.[^.]+$/, ""),
       criado: agora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }),
-      organizado_por: usarIa ? "Gemini" : "sem IA", topicos, pronuncia: pron };
-    salvarEstudo(estudo);
-    st.textContent = $("#usarIa").checked && !chave ? "Sem chave do Gemini: o material foi aberto como está." : "";
-    carregarLista(); abrir(estudo.id);
-  } catch (e) { st.className = "estado erro"; st.textContent = "Erro: " + e.message; }
+      organizado_por: usarIa ? "Gemini" : "sem IA", topicos: [], pronuncia: {}, pendentes: [], partes_total: 0 };
+    if (!usarIa) {
+      e.topicos = soLer(texto); salvarEstudo(e);
+      st.textContent = $("#usarIa").checked ? "Sem chave do Gemini: o material foi aberto como está." : "";
+      carregarLista(); return abrir(e.id);
+    }
+    e.pendentes = blocos(texto, 20000); e.partes_total = e.pendentes.length;
+    salvarEstudo(e); carregarLista();
+    organizando.add(e.id);
+    const ok = await processar(e, chave);
+    organizando.delete(e.id);
+    if (e.topicos.length && (ok || estudo?.id !== e.id)) abrir(e.id);
+  } catch (err) { st.className = "estado erro"; st.textContent = "Erro: " + err.message; }
 }
 $("#arquivo").onchange = (e) => { enviar(e.target.files[0]); e.target.value = ""; };
 const envio = $("#envio");
@@ -124,16 +186,32 @@ if (!$("#chave").value) $("#config").open = true;
 function carregarLista() {
   const lista = indice();
   $("#lista").innerHTML = lista.length ? '<div class="rotulo">Seus materiais</div>' + lista.map((e) =>
-    `<button class="item ${estudo?.id === e.id ? "ativo" : ""}" data-id="${esc(e.id)}"><b>${esc(e.titulo)}</b><small>${e.topicos} tópicos · ${esc(e.criado)} · ${esc(e.organizado_por)}</small></button>`).join("") : "";
+    `<button class="item ${estudo?.id === e.id ? "ativo" : ""}" data-id="${esc(e.id)}"><b>${esc(e.titulo)}</b><small>${e.topicos} tópicos${e.faltam ? ` (faltam ${e.faltam} partes)` : ""} · ${esc(e.criado)} · ${esc(e.organizado_por)}</small></button>`).join("") : "";
   document.querySelectorAll(".item").forEach((b) => (b.onclick = () => abrir(b.dataset.id)));
 }
 
 // ---------- voz ----------
 const worker = new Worker(new URL("./voz-worker.js", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
+const mb = (b) => Math.round(b / 1048576);
+function avisoVoz(titulo, detalhe, pct) {
+  const el = $("#vozAviso");
+  el.hidden = false;
+  el.querySelector("b").textContent = titulo;
+  el.querySelector("small").textContent = detalhe;
+  el.querySelector(".progresso i").style.width = pct == null ? "100%" : pct + "%";
+  el.classList.toggle("indeterminado", pct == null);
+}
 worker.onmessage = ({ data }) => {
-  if (data.tipo === "progresso") $("#vozTexto").textContent = `Baixando a voz… ${data.pct}% (só na primeira vez)`;
+  if (data.tipo === "progresso") {
+    const pct = Math.min(100, Math.round((data.carregado / data.total) * 100));
+    avisoVoz(`Baixando a voz: ${mb(data.carregado)} de ${mb(data.total)} MB (${pct}%)`,
+      "Só acontece na primeira vez. Depois a voz fica guardada neste navegador e abre na hora.", pct);
+    $("#vozTexto").textContent = `Baixando a voz… ${pct}%`;
+  }
+  if (data.tipo === "fase") { avisoVoz(data.texto, "Falta pouco: deixando a voz pronta para ler.", null); $("#vozTexto").textContent = data.texto; }
   if (data.tipo === "pronto") {
+    $("#vozAviso").hidden = true;
     $("#vozEstado").classList.add("ok");
     $("#vozTexto").textContent = data.device === "webgpu" ? "Voz pronta (placa de vídeo)" : "Voz pronta (processador: pode pausar entre frases)";
     vozPronta.ok();
@@ -141,7 +219,11 @@ worker.onmessage = ({ data }) => {
   if (data.tipo === "audio") { pedidos.get(data.id)?.ok(URL.createObjectURL(new Blob([data.buf], { type: "audio/wav" }))); pedidos.delete(data.id); }
   if (data.tipo === "erro") {
     if (data.id != null) { pedidos.get(data.id)?.falha(new Error(data.msg)); pedidos.delete(data.id); }
-    else { $("#vozTexto").textContent = "A voz não carregou: " + data.msg; vozPronta?.falha(new Error(data.msg)); }
+    else {
+      $("#vozTexto").textContent = "A voz não carregou: " + data.msg;
+      avisoVoz("A voz não carregou", data.msg + " — confira a internet e recarregue a página.", 0);
+      vozPronta?.falha(new Error(data.msg));
+    }
   }
 };
 function carregarVoz() {
@@ -149,6 +231,7 @@ function carregarVoz() {
     let ok, falha; const p = new Promise((a, b) => { ok = a; falha = b; });
     vozPronta = { p, ok, falha };
     $("#vozTexto").textContent = "Preparando a voz…";
+    avisoVoz("Preparando a voz…", "Na primeira vez ela é baixada para o seu aparelho (cerca de 300 MB).", null);
     worker.postMessage({ tipo: "carregar" });
   }
   return vozPronta.p;
@@ -181,12 +264,54 @@ function abrir(id) {
   carregarVoz().catch(() => {});
 }
 
+// faixa no topo do material: organizar com IA depois de aberto, ou continuar de onde o Gemini parou
+const organizando = new Set();
+function faixaIa() {
+  if (organizando.has(estudo.id)) return `<div class="continuar">Organizando com IA… acompanhe o andamento à esquerda.</div>`;
+  if (estudo.pendentes?.length)
+    return `<div class="continuar">Faltam ${estudo.pendentes.length} de ${estudo.partes_total} partes para organizar. <button id="btnIa">Continuar organizando</button></div>`;
+  if (estudo.organizado_por === "sem IA")
+    return `<div class="continuar">Este material está como veio no arquivo. <button id="btnIa">Organizar com IA</button></div>`;
+  return "";
+}
+function pedirChave() {
+  const chave = $("#chave").value.trim();
+  if (!chave) {
+    $("#config").open = true; $("#chave").focus();
+    const st = $("#estado"); st.className = "estado erro"; st.textContent = "Cole a chave do Gemini aqui embaixo para organizar com IA.";
+  }
+  return chave;
+}
+async function organizarDepois() {
+  const chave = pedirChave();
+  if (!chave) return;
+  let e = estudo;
+  if (!e.pendentes?.length) {
+    // material aberto sem IA: vira um material novo organizado; o original continua na lista
+    const agora = new Date();
+    e = { id: String(agora.getTime()), titulo: estudo.titulo, criado: agora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }),
+      organizado_por: "Gemini", topicos: [], pronuncia: {}, pendentes: blocos(estudo.topicos.map((x) => x.texto).join("\n\n"), 20000) };
+    e.partes_total = e.pendentes.length;
+    salvarEstudo(e);
+  }
+  organizando.add(e.id);
+  if (estudo.id === e.id) montar(topico, pos);
+  const ok = await processar(e, chave);
+  organizando.delete(e.id);
+  if (estudo?.id === e.id || ok) abrir(e.id);
+}
+
 function montar(t, p = 0) {
+  fila = []; limparPre();
+  if (!estudo.topicos.length) { // nenhuma parte organizada ainda
+    $("#coluna").innerHTML = faixaIa() + '<div class="vazio"><h2>Ainda não há tópicos prontos</h2></div>';
+    $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
+    return;
+  }
   topico = Math.max(0, Math.min(t, estudo.topicos.length - 1));
   const tp = estudo.topicos[topico];
-  fila = []; limparPre();
   const span = (texto, tipo) => { fila.push({ texto, tipo }); return `<span class="frase" data-i="${fila.length - 1}">${esc(texto)}</span> `; };
-  let html = `<div class="topicos">${estudo.topicos.map((x, i) => `<button class="chip ${i === topico ? "ativo" : i < topico ? "feito" : ""}" data-t="${i}">${i + 1}. ${esc(x.titulo)}</button>`).join("")}</div>`;
+  let html = faixaIa() + `<div class="topicos">${estudo.topicos.map((x, i) => `<button class="chip ${i === topico ? "ativo" : i < topico ? "feito" : ""}" data-t="${i}">${i + 1}. ${esc(x.titulo)}</button>`).join("")}</div>`;
   html += `<h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
   if (tp.resumo) {
     fila.push({ texto: "Resumindo.", tipo: "aviso" });
@@ -203,6 +328,7 @@ function montar(t, p = 0) {
   }
   html += `<button class="apagar" id="apagar">Apagar este material</button>`;
   $("#coluna").innerHTML = html;
+  $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
   document.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { const t = tocando; parar(); montar(+c.dataset.t); if (t) tocar(); }));
   document.querySelectorAll(".frase").forEach((f) => (f.onclick = () => { parar(); ir(+f.dataset.i); tocar(); })); // tocar numa frase lê dali
   document.querySelectorAll(".r.oculta").forEach((r) => (r.onclick = () => r.classList.remove("oculta")));
