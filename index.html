@@ -291,6 +291,51 @@ body.modo-cartoes .player { visibility: hidden; }
   .miniatura { width: 44px; height: 44px; }
   .flash { min-height: 220px; padding: 22px 18px; } .flash .frente { font-size: 21px; }
 }
+/* ---------- animações ---------- */
+/* play: anel girando enquanto a voz gera a frase */
+.tocar { position: relative; transition: transform .15s, background .2s; }
+.tocar:active { transform: scale(.94); }
+.tocar.carregando::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 3px solid transparent;
+  border-top-color: var(--destaque); border-right-color: var(--destaque); animation: girar .8s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+/* frase sendo preparada: brilho passando */
+.frase.gerando { opacity: 1; background: linear-gradient(90deg, var(--destaque-fundo) 0%, var(--painel) 50%, var(--destaque-fundo) 100%);
+  background-size: 200% 100%; animation: brilho 1.1s linear infinite; }
+@keyframes brilho { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+/* janelas, menus, gaveta e troca de tópico */
+.fundo-modal:not([hidden]) { animation: aparecer .18s ease; }
+.fundo-modal:not([hidden]) .modal { animation: subir .22s cubic-bezier(.2,.9,.3,1.2); }
+.pop:not([hidden]) { animation: aparecer .14s ease, descer .18s ease; }
+.fundo-gaveta:not([hidden]) { animation: aparecer .18s ease; }
+.folha.entra { animation: subir .3s ease; }
+@keyframes aparecer { from { opacity: 0; } }
+@keyframes subir { from { opacity: 0; transform: translateY(12px) scale(.98); } }
+@keyframes descer { from { transform: translateY(-6px); } }
+.material { transition: transform .15s, border-color .15s, box-shadow .15s; }
+.material:hover { transform: translateY(-2px); box-shadow: var(--sombra); }
+.nav, .chip, .aba, .icone, .btn-voz, .btn-vel, .pri, .sec { transition: background .15s, color .15s, border-color .15s, transform .1s; }
+.pri:active, .sec:active, .nav:active { transform: scale(.97); }
+.estado:not(:empty) { animation: aparecer .2s ease; }
+/* flash cards: entra deslizando; acertou brilha verde e sai à direita; errou balança e sai à esquerda */
+.flash { position: relative; }
+.flash.entrando { animation: entrarCartao .32s cubic-bezier(.2,.9,.3,1.1); }
+@keyframes entrarCartao { from { opacity: 0; transform: translateX(40px) scale(.97); } }
+.flash.acertou { border-color: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent), var(--sombra);
+  animation: acertou .48s ease-in forwards; }
+.flash.errou { border-color: var(--erro); box-shadow: 0 0 0 4px color-mix(in srgb, var(--erro) 22%, transparent), var(--sombra);
+  animation: errou .48s ease-in forwards; }
+.flash.acertou::after, .flash.errou::after { position: absolute; top: 14px; right: 16px; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font: 700 18px Inter, sans-serif; color: var(--painel); animation: selo .28s cubic-bezier(.2,.9,.3,1.6); }
+.flash.acertou::after { content: "✓"; background: var(--ok); }
+.flash.errou::after { content: "✗"; background: var(--erro); }
+@keyframes selo { from { transform: scale(0); } }
+@keyframes acertou { 0%, 45% { transform: none; } 100% { transform: translateX(70px) rotate(4deg); opacity: 0; } }
+@keyframes errou { 0% { transform: none; } 12% { transform: translateX(-9px); } 24% { transform: translateX(8px); } 36% { transform: translateX(-6px); }
+  48% { transform: none; opacity: 1; } 100% { transform: translateX(-70px) rotate(-4deg); opacity: 0; } }
+.barra-dominio i, .linha-progresso i { transition: width .45s cubic-bezier(.2,.9,.3,1); }
+.placar b { display: inline-block; }
+.placar b.pulo { animation: pulo .35s ease; }
+@keyframes pulo { 50% { transform: scale(1.35); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -401,6 +446,6 @@ body.modo-cartoes .player { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261025022506"></script>
+<script type="module" src="app.js?v=20261025023257"></script>
 </body>
 </html>

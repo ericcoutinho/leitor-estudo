@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025022506";
+import { paraFala } from "./texto.js?v=20261025023257";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -315,7 +315,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025022506", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025023257", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -445,7 +445,7 @@ function montar(t, p = 0) {
     <button class="icone" id="topAnt" title="Tópico anterior" aria-label="Tópico anterior" ${topico ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
     <button class="btn-sumario" id="abrirSumario" title="Ver todos os tópicos"><span class="n">${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
     <button class="icone" id="topProx" title="Próximo tópico" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
-  html += `<div class="folha"><h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
+  html += `<div class="folha entra"><h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
   if (tp.resumo && lembrar("prefResumo", true)) {
     fila.push({ texto: "Resumindo.", tipo: "aviso" });
     html += `<div class="cartao"><h3>Resumo</h3><div class="texto">${frases(tp.resumo).map((f) => span(f)).join("")}</div></div>`;
@@ -563,9 +563,10 @@ async function tocar() {
     const p = preparar(pos);
     preparar(pos + 1); preparar(pos + 2);
     atual?.classList.add("gerando");
+    const aviso = setTimeout(() => carregando(true), 150); // só mostra se demorar (frase já pronta não pisca)
     let url;
     try { url = await p; } catch (e) { $("#vozTexto").textContent = "Erro na voz: " + e.message; return parar(); }
-    finally { atual?.classList.remove("gerando"); }
+    finally { clearTimeout(aviso); carregando(false); atual?.classList.remove("gerando"); }
     if (!ativa()) return;
     audio.src = url;
     await audio.play().catch(() => {});
@@ -574,7 +575,15 @@ async function tocar() {
     pos++;
   }
 }
+// play com anel girando enquanto a voz gera a frase: o clique funcionou, só está preparando
+function carregando(sim) {
+  const b = $("#tocar");
+  b.classList.toggle("carregando", sim);
+  b.setAttribute("aria-busy", sim);
+  b.title = sim ? "Gerando a voz…" : "Tocar / pausar (espaço)";
+}
 function parar() {
+  carregando(false);
   tocando = false; $("#tocar").innerHTML = PLAY; audio.onpause = null; audio.pause();
   if (espera) { espera(false); espera = null; }
 }
@@ -654,7 +663,7 @@ function montarCartoes() {
     <button class="pri" id="recomecar">Nova rodada</button></div>`;
   else {
     const c = sessao[0];
-    corpo = `<div class="flash ${virado ? "virado" : ""}" id="virar" role="button" tabindex="0" aria-label="Virar cartão">
+    corpo = `<div class="flash ${virado ? "virado" : ""} ${entrar ? "entrando" : ""}" id="virar" role="button" tabindex="0" aria-label="Virar cartão">
         <span class="lado">${virado ? "Resposta" : "Pergunta"} · ${esc(estudo.topicos[c.t]?.titulo || "")}</span>
         <div class="frente">${esc(c.frente)}</div>
         ${virado ? `<div class="verso">${esc(c.verso)}</div>` : `<small>Toque para ver a resposta (espaço)</small>`}
@@ -669,6 +678,8 @@ function montarCartoes() {
         <span>${sessao.length ? `Cartão ${Math.min(feitos + 1, rodada.total)} de ${rodada.total}` : `${rodada.total} de ${rodada.total}`} · <b class="ok">✓ ${rodada.acertos}</b> · <b class="erro">✗ ${rodada.erros}</b></span>
         <span title="Dominado = acertou o cartão em 2 rodadas seguidas (errar zera)">${dominados} de ${todos.length} dominados</span></div>
       <div class="barra-dominio"><i style="width:${rodada.total ? Math.round((feitos / rodada.total) * 100) : 0}%"></i></div>` : "") + corpo;
+  entrar = false;
+  if (ultima) { $(".placar b." + ultima)?.classList.add("pulo"); ultima = null; }
   ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
   $("#filtro").onchange = (e) => { filtroTopico = e.target.value; novaRodada(); };
@@ -682,11 +693,24 @@ function montarCartoes() {
   }
 }
 
+// a resposta anima o cartão antes de trocar: acertou brilha verde e sai para a direita, errou balança e sai à esquerda
+let animando = false, entrar = false, ultima = null;
 function responder(sabia) {
+  if (animando) return;
+  const el = $("#virar");
+  if (el && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    animando = true;
+    el.classList.add(sabia ? "acertou" : "errou");
+    document.querySelectorAll(".respostas button").forEach((b) => (b.disabled = true));
+    setTimeout(() => { animando = false; entrar = true; registrarResposta(sabia); }, 480);
+  } else registrarResposta(sabia);
+}
+function registrarResposta(sabia) {
   const c = sessao.shift(), cx = caixas();
   cx[c.chave] = sabia ? Math.min(5, (cx[c.chave] || 0) + 1) : 0;
   guardar("caixas:" + estudo.id, cx);
   sabia ? rodada.acertos++ : rodada.erros++;
+  ultima = sabia ? "ok" : "erro";
   if (!sabia) sessao.splice(Math.min(3, sessao.length), 0, c); // errou: volta daqui a 3 cartões
   virado = false;
   montarCartoes();
