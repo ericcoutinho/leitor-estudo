@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025024134";
+import { paraFala } from "./texto.js?v=20261025025009";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -287,7 +287,7 @@ function abrirMenu(id, botao) {
   pop.style.top = (embaixo ? r.bottom + 8 : r.top - h - 8) + "px";
 }
 const fecharMenus = () => document.querySelectorAll(".pop").forEach((p) => (p.hidden = true));
-document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btnVoz, #btnVel, #btnMais")) fecharMenus(); });
+document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btnVoz, #btnVel, #btnMais, #btnPomo, #btnPomoNav")) fecharMenus(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { fecharMenus(); fecharModais(); } });
 
 const VOZES = [["pf_dora", "Dora", "feminina"], ["pm_alex", "Alex", "masculina"], ["pm_santa", "Santa", "masculina"]];
@@ -361,7 +361,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025024134", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025025009", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -981,3 +981,131 @@ for (const id of ["prefPerguntas", "prefResumo"]) {
 $("#linhaPensar").hidden = !$("#prefPerguntas").checked;
 mostrarVoz();
 mostrarBiblioteca();
+
+// ---------- pomodoro ----------
+// Foco/pausa com relógio flutuante (pode ocultar). O fim é calculado pela hora marcada (não por contagem), então
+// continua certo com a aba em segundo plano e depois de recarregar. Aviso: som + notificação, só notificação ou só visual.
+const POMO_PADRAO = { foco: 25, pausa: 5, longa: 15, aviso: "som", mostrar: true, pararLeitura: true };
+let pomo = { ...POMO_PADRAO, ...lembrar("pomo", {}) }; // ajustes + estado { fase, fimEm, restante, rodando, ciclo }
+pomo.fase ??= "foco"; pomo.ciclo ??= 0;
+const NOMES_FASE = { foco: "Foco", pausa: "Pausa", longa: "Pausa longa" };
+const duracao = (f) => (pomo[f] || POMO_PADRAO[f]) * 60000;
+const salvarPomo = () => guardar("pomo", pomo);
+const hojeChave = () => "pomoHoje:" + new Date().toISOString().slice(0, 10);
+const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
+const restante = () => (pomo.rodando ? pomo.fimEm - Date.now() : pomo.restante ?? duracao(pomo.fase));
+
+function desenharPomo() {
+  const r = restante(), total = duracao(pomo.fase), pausa = pomo.fase !== "foco";
+  const ativo = pomo.rodando || (pomo.restante != null && pomo.restante < total);
+  $("#pomoTempo").textContent = mmss(r);
+  $("#pomoFase").textContent = NOMES_FASE[pomo.fase];
+  $("#pomoCiclos").textContent = "●".repeat(pomo.ciclo % 4) + "○".repeat(4 - (pomo.ciclo % 4));
+  const c = 2 * Math.PI * 52;
+  $("#pomoAnel").style.strokeDasharray = c;
+  $("#pomoAnel").style.strokeDashoffset = c * (1 - Math.max(0, Math.min(1, r / total)));
+  $("#relogio").classList.toggle("pausa", pausa);
+  $("#relogio").classList.toggle("parado", !pomo.rodando);
+  $("#relogio").hidden = !(pomo.mostrar && ativo);
+  $("#pomoPlay").innerHTML = pomo.rodando ? PAUSA : PLAY;
+  $("#pomoPlay").title = pomo.rodando ? "Pausar" : "Continuar";
+  // no topo: tempo pequeno quando está ativo (é o único sinal quando o relógio está oculto)
+  $("#pomoMini").textContent = ativo ? mmss(r) : "";
+  $("#pomoMiniNav").textContent = ativo ? mmss(r) : "";
+  $("#btnPomo").classList.toggle("ativo", ativo);
+  $("#btnPomo").classList.toggle("pausa", ativo && pausa);
+  $("#pomoComecar").textContent = pomo.rodando ? "Pausar" : ativo ? "Continuar" : `Começar ${NOMES_FASE[pomo.fase].toLowerCase()}`;
+  const feitos = lembrar(hojeChave(), 0);
+  $("#pomoHoje").textContent = feitos ? `Hoje: ${feitos} pomodoro${feitos > 1 ? "s" : ""} de foco (${feitos * pomo.foco} min)` : "Dica: 25 min de foco e 5 de pausa; a cada 4 focos, uma pausa longa.";
+}
+function iniciarPomo() {
+  pomo.fimEm = Date.now() + (pomo.restante ?? duracao(pomo.fase));
+  pomo.rodando = true; delete pomo.restante;
+  salvarPomo(); desenharPomo();
+  if (pomo.aviso !== "visual" && "Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+}
+function pausarPomo() { pomo.restante = restante(); pomo.rodando = false; salvarPomo(); desenharPomo(); }
+function zerarPomo() { pomo.rodando = false; delete pomo.restante; pomo.fase = "foco"; pomo.ciclo = 0; salvarPomo(); desenharPomo(); }
+function proximaFase(contar) {
+  if (pomo.fase === "foco") {
+    if (contar) guardar(hojeChave(), lembrar(hojeChave(), 0) + 1);
+    pomo.ciclo++;
+    pomo.fase = pomo.ciclo % 4 === 0 ? "longa" : "pausa";
+  } else pomo.fase = "foco";
+  pomo.rodando = false; delete pomo.restante; salvarPomo(); desenharPomo();
+}
+// sininho suave feito no próprio navegador (sem arquivo de som)
+function sininho() {
+  try {
+    const ctx = new AudioContext();
+    [[880, 0], [1318.5, 0.18]].forEach(([f, t]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 1.2);
+      o.connect(g).connect(ctx.destination); o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 1.3);
+    });
+  } catch {}
+}
+function fimDeFase() {
+  const eraFoco = pomo.fase === "foco";
+  proximaFase(true);
+  if (eraFoco && pomo.pararLeitura) parar();
+  const titulo = eraFoco ? (pomo.fase === "longa" ? "Hora da pausa longa!" : "Hora da pausa!") : "Pausa terminada";
+  const texto = eraFoco ? `Você completou ${pomo.ciclo % 4 || 4} de 4 focos. Levante, beba água: ${pomo[pomo.fase]} min de pausa.` : `Pronto para mais ${pomo.foco} min de foco?`;
+  if (pomo.aviso === "som") sininho();
+  if (pomo.aviso !== "visual" && "Notification" in window && Notification.permission === "granted" && document.hidden) {
+    try { new Notification(titulo, { body: texto, tag: "pomodoro", icon: $('link[rel="icon"]').href }); } catch {}
+  }
+  $("#alertaIcone").textContent = eraFoco ? "☕" : "📚";
+  $("#tAlerta").textContent = titulo; $("#alertaTexto").textContent = texto;
+  $("#alertaSeguir").textContent = `Começar ${NOMES_FASE[pomo.fase].toLowerCase()}`;
+  $("#alertaPomo").hidden = false;
+  $("#relogio").classList.remove("terminou"); void $("#relogio").offsetWidth; $("#relogio").classList.add("terminou");
+}
+$("#alertaSeguir").onclick = () => { $("#alertaPomo").hidden = true; iniciarPomo(); };
+$("#alertaPular").onclick = () => { $("#alertaPomo").hidden = true; proximaFase(false); iniciarPomo(); };
+setInterval(() => {
+  if (pomo.rodando && restante() <= 0) fimDeFase();
+  desenharPomo();
+}, 500);
+
+$("#btnPomo").onclick = () => abrirMenu("#popPomo", $("#btnPomo"));
+$("#btnPomoNav").onclick = () => abrirMenu("#popPomo", $("#btnPomoNav")); // celular: na biblioteca o topo some
+$("#pomoComecar").onclick = () => { pomo.rodando ? pausarPomo() : iniciarPomo(); fecharMenus(); };
+$("#pomoZerar").onclick = zerarPomo;
+$("#pomoPlay").onclick = () => (pomo.rodando ? pausarPomo() : iniciarPomo());
+$("#pomoPular").onclick = () => { proximaFase(false); iniciarPomo(); };
+$("#pomoOcultar").onclick = () => { pomo.mostrar = false; $("#pomoMostrar").checked = false; salvarPomo(); desenharPomo(); };
+for (const [id, campo] of [["#pomoFoco", "foco"], ["#pomoPausa", "pausa"], ["#pomoLonga", "longa"]]) {
+  $(id).value = pomo[campo];
+  $(id).onchange = () => {
+    const v = Math.round(+$(id).value);
+    if (v >= +$(id).min && v <= +$(id).max) { pomo[campo] = v; if (!pomo.rodando && pomo.fase === campo) delete pomo.restante; salvarPomo(); desenharPomo(); }
+    else $(id).value = pomo[campo];
+  };
+}
+$("#pomoAviso").value = pomo.aviso;
+$("#pomoAviso").onchange = () => {
+  pomo.aviso = $("#pomoAviso").value; salvarPomo();
+  if (pomo.aviso !== "visual" && "Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  if (pomo.aviso === "som") sininho(); // amostra do som
+};
+$("#pomoMostrar").checked = pomo.mostrar;
+$("#pomoMostrar").onchange = () => { pomo.mostrar = $("#pomoMostrar").checked; salvarPomo(); desenharPomo(); };
+$("#pomoPararLeitura").checked = pomo.pararLeitura;
+$("#pomoPararLeitura").onchange = () => { pomo.pararLeitura = $("#pomoPararLeitura").checked; salvarPomo(); };
+// arrastar o relógio para outro canto (a posição fica salva)
+{
+  const r = $("#relogio"), pos = lembrar("pomoPos", null);
+  const colocar = (x, y) => Object.assign(r.style, { left: Math.max(4, Math.min(innerWidth - r.offsetWidth - 4, x)) + "px", top: Math.max(4, Math.min(innerHeight - r.offsetHeight - 4, y)) + "px", right: "auto", bottom: "auto" });
+  if (pos) Object.assign(r.style, { left: pos.x + "px", top: pos.y + "px", right: "auto", bottom: "auto" });
+  let ini = null;
+  r.querySelector(".arrastar").onpointerdown = (e) => { const b = r.getBoundingClientRect(); ini = { dx: e.clientX - b.left, dy: e.clientY - b.top }; r.setPointerCapture(e.pointerId); };
+  r.onpointermove = (e) => { if (ini) colocar(e.clientX - ini.dx, e.clientY - ini.dy); };
+  r.onpointerup = () => { if (!ini) return; ini = null; guardar("pomoPos", { x: parseInt(r.style.left), y: parseInt(r.style.top) }); };
+  addEventListener("resize", () => { if (r.style.left) colocar(parseInt(r.style.left), parseInt(r.style.top)); });
+}
+document.addEventListener("click", (e) => { if (!e.target.closest("#popPomo, #btnPomo, #btnPomoNav")) $("#popPomo").hidden = true; });
+desenharPomo();
