@@ -359,6 +359,24 @@ body.modo-cartoes .player { visibility: hidden; }
 .voz-card .ouvir { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; }
 .avatar.grande { width: 56px; height: 56px; font-size: 22px; }
 
+/* ---------- virar a folha ao trocar de tópico (View Transitions) ---------- */
+.folha, .guia-corpo { view-transition-name: folha; }
+/* o resto da tela troca na hora; só a folha anima */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-group(folha) { animation-duration: .65s; }
+::view-transition-image-pair(folha) { perspective: 2800px; }
+html[data-virar] .folha.entra, html[data-virar] .guia-corpo.entra { animation: none; }
+/* para frente: a folha atual gira pela lombada (esquerda) e revela a próxima por baixo */
+html[data-virar="frente"]::view-transition-old(folha) { z-index: 2; transform-origin: left center; animation: folhaVai .65s cubic-bezier(.45,.05,.35,1) both; }
+html[data-virar="frente"]::view-transition-new(folha) { animation: folhaRevela .65s ease both; }
+/* para trás: a folha anterior volta girando por cima da atual */
+html[data-virar="tras"]::view-transition-new(folha) { z-index: 2; transform-origin: left center; animation: folhaVolta .65s cubic-bezier(.45,.05,.35,1) both; }
+html[data-virar="tras"]::view-transition-old(folha) { animation: folhaEscurece .65s ease both; }
+@keyframes folhaVai { 0% { transform: rotateY(0); filter: brightness(1); } 100% { transform: rotateY(-92deg); filter: brightness(.7); opacity: .9; } }
+@keyframes folhaVolta { 0% { transform: rotateY(-92deg); filter: brightness(.7); } 100% { transform: rotateY(0); filter: brightness(1); } }
+@keyframes folhaRevela { 0% { filter: brightness(.82); transform: scale(.985); } 100% { filter: brightness(1); transform: none; } }
+@keyframes folhaEscurece { 0% { filter: brightness(1); } 100% { filter: brightness(.82); transform: scale(.985); } }
+
 /* ---------- estudo guiado ---------- */
 body.guia-passo .player { visibility: hidden; }
 .passos-guia { list-style: none; display: flex; gap: 4px; margin: 0 0 16px; padding: 0; counter-reset: p; }
@@ -865,6 +883,6 @@ body.guia-passo .player { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261025035610"></script>
+<script type="module" src="app.js?v=20261025040427"></script>
 </body>
 </html>

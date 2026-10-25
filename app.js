@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025035610";
+import { paraFala } from "./texto.js?v=20261025040427";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -407,7 +407,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025035610", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025040427", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -589,7 +589,19 @@ function montar(t, p = 0) {
 // ---------- sumário (gaveta com todos os tópicos) ----------
 function irTopico(t) {
   if (!estudo || t < 0 || t >= estudo.topicos.length) return;
-  const tocava = tocando; parar(); fecharSumario(); montar(t); if (tocava) tocar();
+  const tocava = tocando; parar(); fecharSumario();
+  virarFolha(t > topico ? "frente" : "tras", () => montar(t)).then(() => { if (tocava) tocar(); });
+}
+// troca de tópico com a folha virando pela lombada, como num livro (View Transitions API do próprio navegador).
+// Sem suporte (Firefox antigo) ou com "reduzir movimento" no sistema, troca direto. Resolve quando o tópico novo já está na tela.
+function virarFolha(direcao, trocar) {
+  if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches || !document.querySelector(".folha, .guia-corpo")) {
+    trocar(); return Promise.resolve();
+  }
+  document.documentElement.dataset.virar = direcao;
+  const t = document.startViewTransition(trocar);
+  t.finished.finally(() => delete document.documentElement.dataset.virar);
+  return t.updateCallbackDone.catch(() => {});
 }
 function listarTopicos() {
   const busca = $("#buscaTopico").value.trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
@@ -838,7 +850,7 @@ async function tocar() {
     const it = fila[pos];
     if (!it) {
       if (modo === "guiado") { marcarLido(estudo, topico); return irEtapa(3); }
-      if (topico < estudo.topicos.length - 1) { montar(topico + 1); continue; }
+      if (topico < estudo.topicos.length - 1) { await virarFolha("frente", () => montar(topico + 1)); if (!ativa()) return; continue; }
       return parar();
     }
     ir(pos);
@@ -1419,8 +1431,8 @@ function montarGuiado() {
   }
   $("#coluna").innerHTML = faixaIa() + faixaObjetivo() + abas() + stepper() + cab + `<div class="guia-corpo entra">${corpo}</div>`;
   ligarAbas(); ligarObjetivo();
-  $("#guiaAnt").onclick = () => iniciarGuiado(topico - 1);
-  $("#guiaProx").onclick = () => iniciarGuiado(topico + 1);
+  $("#guiaAnt").onclick = () => virarFolha("tras", () => iniciarGuiado(topico - 1));
+  $("#guiaProx").onclick = () => virarFolha("frente", () => iniciarGuiado(topico + 1));
   $("#guiaOuvir") && ($("#guiaOuvir").onclick = () => falarGuia(falar));
   $("#guiaSeguir") && ($("#guiaSeguir").onclick = () => {
     if (guia.etapa === 3) guia.itens.forEach((x) => (x.lembrou ??= false)); // sem marcar conta como "não lembrei"
@@ -1441,7 +1453,7 @@ function montarGuiado() {
     marcarLido(estudo, topico);
     $("#guiaCartoes") && ($("#guiaCartoes").onclick = () => { document.body.classList.remove("guia-passo"); modo = "cartoes"; document.body.classList.add("modo-cartoes"); filtroTopico = String(topico); novaRodada(); });
     $("#guiaReler").onclick = () => irEtapa(2);
-    $("#guiaProxTopico") && ($("#guiaProxTopico").onclick = () => iniciarGuiado(topico + 1));
+    $("#guiaProxTopico") && ($("#guiaProxTopico").onclick = () => virarFolha("frente", () => iniciarGuiado(topico + 1)));
     $("#guiaFim") && ($("#guiaFim").onclick = () => { toast("Material concluído no estudo guiado! 🎉 As revisões seguem no seu plano.", [], 5000); document.body.classList.remove("guia-passo"); modo = "ler"; montar(topico, 0); });
   }
   if (falar) falarGuia(falar);
