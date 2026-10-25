@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js";
+import { paraFala } from "./texto.js?v=20261025022506";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -54,11 +54,11 @@ Organize o trecho abaixo em tópicos, na ordem lógica do conteúdo. Regras:
 - Para cada tópico: um resumo de 1 a 3 frases e de 1 a 3 perguntas de revisão com resposta curta.
 - Para cada tópico, também de 4 a 8 flash cards: frente curta (um conceito, sigla, número ou pergunta direta) e verso
   com a resposta em uma ou duas frases. Cubra o que mais cai em prova; não repita as perguntas de revisão.
-- Mantenha termos em inglês (ou outra língua estrangeira) escritos no original no texto, e liste em "pronuncia" cada um
-  com a grafia aportuguesada de como um brasileiro fala, para a voz ler certo. Ex.: {"software":"sófituer","feedback":"fidbéc",
-  "compliance":"complaiâns","home office":"rôum ófis"}. Siglas em inglês lidas letra a letra também: {"CEO":"ci í ôu"}.
+- Mantenha termos em inglês escritos no original no texto e liste em "ingles" cada termo ou nome em inglês do jeito que
+  aparece (ex.: "Data Warehouse", "Business Intelligence", "Kimball", "Power BI", "dashboard"), para a voz ler com
+  pronúncia de inglês. Não inclua siglas que no Brasil se leem letra a letra em português (ETL, SQL, ERP, OLAP).
 Responda SOMENTE com JSON válido neste formato:
-{"topicos":[{"titulo":"...","texto":"...","resumo":"...","perguntas":[{"pergunta":"...","resposta":"..."}],"cartoes":[{"frente":"...","verso":"..."}]}],"pronuncia":{}}`;
+{"topicos":[{"titulo":"...","texto":"...","resumo":"...","perguntas":[{"pergunta":"...","resposta":"..."}],"cartoes":[{"frente":"...","verso":"..."}]}],"ingles":[]}`;
 const MODELOS = ["gemini-flash-lite-latest", "gemini-flash-latest"];
 const ESPERAS = [5, 15, 30, 60]; // segundos entre as tentativas quando o Gemini está ocupado (503) ou no limite por minuto
 const dormir = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -114,7 +114,7 @@ async function gemini(prompt, chave, aviso, valida) {
 
 async function organizar(trecho, chave, aviso) {
   const o = await gemini(INSTRUCAO + "\n\nTRECHO:\n" + trecho, chave, aviso, (o) => Array.isArray(o.topicos) && o.topicos.length);
-  return { topicos: o.topicos, pronuncia: o.pronuncia || {} };
+  return { topicos: o.topicos, ingles: Array.isArray(o.ingles) ? o.ingles : [] };
 }
 
 const INSTRUCAO_CARTOES = `Crie flash cards para estudar para uma prova a partir do material abaixo, em português do Brasil.
@@ -144,7 +144,7 @@ async function processar(e, chave) {
     aviso("organizando…");
     try {
       const o = await organizar(e.pendentes[0], chave, aviso);
-      e.topicos.push(...o.topicos); Object.assign(e.pronuncia, o.pronuncia);
+      e.topicos.push(...o.topicos); e.ingles = [...new Set([...(e.ingles || []), ...o.ingles])];
       e.pendentes.shift();
       salvarEstudo(e); carregarLista();
       if (estudo?.id === e.id) { estudo = e; const p = pos, t = topico; if (!tocando) montar(t, p); }
@@ -315,7 +315,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025022506", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -365,7 +365,7 @@ async function sintetizar(texto) {
   const id = ++seq;
   return new Promise((ok, falha) => {
     pedidos.set(id, { ok, falha });
-    worker.postMessage({ tipo: "falar", id, texto: paraFala(texto, estudo?.pronuncia), voz: vozAtual, vel: +velAtual });
+    worker.postMessage({ tipo: "falar", id, texto: paraFala(texto, estudo), voz: vozAtual, vel: +velAtual });
   });
 }
 
@@ -600,7 +600,8 @@ document.onkeydown = (e) => {
 // Baralho = cartões que a IA criou + perguntas de revisão. Caixas (0 a 5) salvas por material: errou volta para a 0
 // e reaparece logo na mesma rodada; acertou sobe uma caixa. A rodada começa pelas caixas mais baixas.
 let modo = "ler", sessao = [], virado = false, filtroTopico = "todos", falaCartao = 0;
-const DOMINADO = 3;
+let rodada = { total: 0, acertos: 0, erros: 0 }; // placar da rodada: muda a cada resposta
+const DOMINADO = 2; // acertou em 2 rodadas seguidas (errar zera)
 const baralho = (e) => e.topicos.flatMap((t, i) => [
   ...(t.cartoes || []).map((c) => ({ t: i, frente: c.frente, verso: c.verso })),
   ...(t.perguntas || []).map((q) => ({ t: i, frente: q.pergunta, verso: q.resposta })),
@@ -625,6 +626,7 @@ function novaRodada() {
   const cx = caixas();
   const todos = baralho(estudo).filter((c) => filtroTopico === "todos" || c.t === +filtroTopico);
   sessao = todos.map((c) => ({ c, s: (cx[c.chave] || 0) + Math.random() })).sort((a, b) => a.s - b.s).map((x) => x.c);
+  rodada = { total: sessao.length, acertos: 0, erros: 0 };
   virado = false;
   montarCartoes();
 }
@@ -637,15 +639,19 @@ function falarCartao(texto) {
 }
 
 function montarCartoes() {
-  const todos = baralho(estudo), cx = caixas();
+  const cx = caixas();
+  const todos = baralho(estudo).filter((c) => filtroTopico === "todos" || c.t === +filtroTopico);
   const dominados = todos.filter((c) => (cx[c.chave] || 0) >= DOMINADO).length;
+  const feitos = rodada.total - new Set(sessao.map((c) => c.chave)).size; // cartões que já saíram desta rodada
   const semIa = !estudo.topicos.some((t) => t.cartoes?.length);
   const filtro = `<select id="filtro"><option value="todos">Todos os tópicos</option>${estudo.topicos.map((t, i) =>
     `<option value="${i}" ${String(i) === filtroTopico ? "selected" : ""}>${i + 1}. ${esc(t.titulo)}</option>`).join("")}</select>`;
   const gerar = semIa ? `<button class="sec" id="gerarCartoes">${todos.length ? "Gerar mais cartões com IA" : "Gerar flash cards com IA"}</button>` : "";
   let corpo;
   if (!todos.length) corpo = `<div class="vazio"><h2>Ainda não há flash cards</h2><p>Gere os cartões com IA a partir deste material.</p></div>`;
-  else if (!sessao.length) corpo = `<div class="fim-rodada"><h2>Rodada concluída</h2><p>${dominados} de ${todos.length} cartões dominados.</p><button class="pri" id="recomecar">Nova rodada</button></div>`;
+  else if (!sessao.length) corpo = `<div class="fim-rodada"><h2>Rodada concluída</h2>
+    <p>${rodada.acertos} acertos e ${rodada.erros} erros nesta rodada · ${dominados} de ${todos.length} cartões dominados.</p>
+    <button class="pri" id="recomecar">Nova rodada</button></div>`;
   else {
     const c = sessao[0];
     corpo = `<div class="flash ${virado ? "virado" : ""}" id="virar" role="button" tabindex="0" aria-label="Virar cartão">
@@ -659,8 +665,10 @@ function montarCartoes() {
   }
   $("#coluna").innerHTML = faixaIa() + abas() +
     `<div class="cartoes-topo">${filtro}<label><input type="checkbox" id="lerCartao" ${lembrar("lerCartao", true) ? "checked" : ""}> Ler em voz alta</label>${gerar}</div>` +
-    (todos.length ? `<div class="placar"><span>Faltam ${sessao.length} nesta rodada</span><span>${dominados} de ${todos.length} dominados</span></div>
-      <div class="barra-dominio"><i style="width:${Math.round((dominados / todos.length) * 100)}%"></i></div>` : "") + corpo;
+    (todos.length ? `<div class="placar" aria-live="polite">
+        <span>${sessao.length ? `Cartão ${Math.min(feitos + 1, rodada.total)} de ${rodada.total}` : `${rodada.total} de ${rodada.total}`} · <b class="ok">✓ ${rodada.acertos}</b> · <b class="erro">✗ ${rodada.erros}</b></span>
+        <span title="Dominado = acertou o cartão em 2 rodadas seguidas (errar zera)">${dominados} de ${todos.length} dominados</span></div>
+      <div class="barra-dominio"><i style="width:${rodada.total ? Math.round((feitos / rodada.total) * 100) : 0}%"></i></div>` : "") + corpo;
   ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
   $("#filtro").onchange = (e) => { filtroTopico = e.target.value; novaRodada(); };
@@ -678,6 +686,7 @@ function responder(sabia) {
   const c = sessao.shift(), cx = caixas();
   cx[c.chave] = sabia ? Math.min(5, (cx[c.chave] || 0) + 1) : 0;
   guardar("caixas:" + estudo.id, cx);
+  sabia ? rodada.acertos++ : rodada.erros++;
   if (!sabia) sessao.splice(Math.min(3, sessao.length), 0, c); // errou: volta daqui a 3 cartões
   virado = false;
   montarCartoes();

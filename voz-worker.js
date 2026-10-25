@@ -9,12 +9,64 @@ const TROCAS = [["a^ɪ", "I"], ["a^ʊ", "W"], ["d^z", "ʣ"], ["d^ʒ", "ʤ"], ["e
   ["s^s", "S"], ["t^s", "ʦ"], ["t^ʃ", "ʧ"], ["ɔ^ɪ", "Y"], ["^", ""], ["-", ""]];
 let tts = null;
 
+// Termos em inglês chegam marcados ⟦assim⟧ (texto.js): ganham a fonética do INGLÊS (espeak en-us) e a mesma voz
+// os fala como um brasileiro que sabe inglês. Grafia aportuguesada ("sófituer") soava errada — o usuário reprovou.
+// Trocas do misaki EspeakFallback (inglês americano), na mesma ordem do pacote Python.
+const TROCAS_EN = [["ʔˌn̩", "ʔn"], ["ʔn̩", "ʔn"], ["a^ɪ", "I"], ["a^ʊ", "W"], ["d^ʒ", "ʤ"], ["e^ɪ", "A"], ["t^ʃ", "ʧ"],
+  ["ɔ^ɪ", "Y"], ["ə^l", "ᵊl"], ["ʲo", "jo"], ["ʲə", "jə"], ["ʲ", ""], ["ɚ", "əɹ"], ["e", "A"], ["r", "ɹ"], ["x", "k"], ["ç", "k"],
+  ["ɐ", "ə"], ["ɬ", "l"], ["̃", ""]];
+function trocasIngles(ps) {
+  for (const [a, b] of TROCAS_EN) ps = ps.split(a).join(b);
+  ps = ps.replace(/(\S)̩/g, "ᵊ$1").replace(/̩/g, "");
+  ps = ps.split("o^ʊ").join("O").split("ɜːɹ").join("ɜɹ").split("ɜː").join("ɜɹ").split("ɪə").join("iə").split("ː").join("");
+  return ps.split("o").join("ɔ").split("ɾ").join("T").split("ʔ").join("t").split("^").join("");
+}
+// palavrinha logo antes de um termo em inglês sairia tônica ("usa o | Spoon" → "usa ó"): vai átona, como na fala
+const ATONAS = { o: "ʊ", os: "ʊs", a: "a", as: "as", e: "i", de: "ʤi", do: "dʊ", da: "da", dos: "dʊs", das: "das",
+  no: "nʊ", na: "na", nos: "nʊs", nas: "nas", em: "ẽj", um: "ũ", uma: "ˈumæ", ou: "ow", com: "kõ", para: "pˌaɾæ", pelo: "pelʊ", pela: "pelæ" };
+
+async function espeak(texto, voz) {
+  const e = await ESpeakNg({ arguments: ["--phonout", "saida", "-q", "--ipa", "--tie=^", "-v", voz, texto] });
+  return e.FS.readFile("saida", { encoding: "utf8" }).split("\n").map((l) => l.trim()).filter(Boolean);
+}
+// o espeak quebra linha em cada vírgula/ponto e some com a pontuação; ela volta aqui, na ordem do texto
+const comPontuacao = (linhas, texto) => {
+  const antes = texto.match(/^\s*([,.;:!?]+)/)?.[1] ?? ""; // ", segundo" → a vírgula fica na frente
+  const pont = texto.slice(texto.indexOf(antes) + antes.length).match(/[,.;:!?]+/g) || [];
+  return (antes ? antes + " " : "") + linhas.map((l, i) => l + (pont[i] ?? (i < linhas.length - 1 ? "," : ""))).join(" ");
+};
+// vários trechos do mesmo idioma numa chamada só (cada chamada custa ~80 ms): entre eles vai uma palavra-marca
+// isolada por pontos, e a saída é cortada nas linhas dela
+const MARCA = "kapok", marcas = {};
+async function lote(textos, voz) {
+  if (!textos.length) return [];
+  if (textos.length === 1) return [comPontuacao(await espeak(textos[0], voz), textos[0])];
+  marcas[voz] ??= (await espeak(MARCA, voz)).join(" ");
+  const grupos = [[]];
+  for (const l of await espeak(textos.join(` . ${MARCA} . `), voz)) l === marcas[voz] ? grupos.push([]) : grupos.at(-1).push(l);
+  if (grupos.length !== textos.length) return Promise.all(textos.map(async (t) => comPontuacao(await espeak(t, voz), t))); // garantia
+  return grupos.map((g, i) => comPontuacao(g, textos[i]));
+}
+
 async function fonetizar(texto) {
-  const e = await ESpeakNg({ arguments: ["--phonout", "saida", "-q", "--ipa", "--tie=^", "-v", "pt-br", texto] });
-  // o espeak quebra linha em cada vírgula/ponto e some com a pontuação; ela volta aqui, na ordem do texto
-  const linhas = e.FS.readFile("saida", { encoding: "utf8" }).split("\n").map((l) => l.trim()).filter(Boolean);
-  const pont = texto.match(/[,.;:!?]+/g) || [];
-  let ps = linhas.map((l, i) => l + (pont[i] ?? (i < linhas.length - 1 ? "," : ""))).join(" ");
+  const partes = texto.split(/⟦|⟧/); // pares = português, ímpares = inglês
+  const pt = [], fim = [];
+  partes.forEach((t, i) => {
+    if (i % 2) return;
+    const pedacos = t.match(/[\p{L}\d]+|[^\p{L}\d\s]+/gu) || [], atonas = [];
+    if (i < partes.length - 1) while (pedacos.length && ATONAS[pedacos.at(-1).toLowerCase()]) atonas.unshift(ATONAS[pedacos.pop().toLowerCase()]);
+    pt.push(atonas.length ? pedacos.join(" ") : t);
+    fim.push(atonas.join(" "));
+  });
+  const temPalavra = (t) => /[\p{L}\d]/u.test(t);
+  const ptFon = await lote(pt.filter(temPalavra), "pt-br");
+  const enFon = await lote(partes.filter((_, i) => i % 2), "en-us");
+  let p = 0, e = 0;
+  let ps = partes.map((t, i) => {
+    if (i % 2) return trocasIngles(enFon[e++]);
+    const base = temPalavra(pt[i / 2]) ? ptFon[p++] : pt[i / 2].trim();
+    return [base, fim[i / 2]].filter(Boolean).join(" ");
+  }).filter(Boolean).join(" ");
   for (const [a, b] of TROCAS) ps = ps.split(a).join(b);
   return ps;
 }
@@ -48,7 +100,7 @@ async function gerar(texto, voz, vel) {
 // frase longa demais para o modelo (limite ~500 fonemas) é dividida nas vírgulas
 function dividir(texto) {
   if (texto.length < 300) return [texto];
-  const partes = texto.split(/(?<=[,;:])\s+/);
+  const partes = texto.split(/(?<=[,;:])\s+(?![^⟦]*⟧)/); // nunca no meio de um termo em inglês
   const saida = [];
   for (const p of partes) {
     if (saida.length && (saida.at(-1) + " " + p).length < 300) saida[saida.length - 1] += " " + p;

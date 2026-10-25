@@ -13,13 +13,13 @@
   --fundo: #f4f5f7; --painel: #ffffff; --borda: #e3e5ea; --texto: #1f2328; --suave: #646a73;
   --destaque: #2563c9; --destaque-forte: #1d4fa3; --destaque-fundo: #e6efff; --lido: #9aa0a8;
   --pergunta: #7a4b00; --pergunta-fundo: #fbf1de; --sombra: 0 1px 2px rgba(16,24,40,.05), 0 6px 20px rgba(16,24,40,.06);
-  --ok: #1e7a4c; --erro: #b3261e;
+  --ok: #1e7a4c; --erro: #b3261e; --sobre-destaque: #ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --fundo: #15171a; --painel: #1f2227; --borda: #33373e; --texto: #e8eaed; --suave: #a1a7b0;
     --destaque: #7aa7f5; --destaque-forte: #9dbcf7; --destaque-fundo: #22324d; --lido: #6f747c;
-    --pergunta: #f0c27a; --pergunta-fundo: #3a2f1c; --sombra: none; --ok: #7fd3a6; --erro: #f2b8b5;
+    --pergunta: #f0c27a; --pergunta-fundo: #3a2f1c; --sombra: none; --ok: #7fd3a6; --erro: #f2b8b5; --sobre-destaque: #0d1b33;
   }
 }
 * { box-sizing: border-box; }
@@ -44,8 +44,8 @@ body.recolhida .app { grid-template-columns: 68px 1fr; }
 .nav:hover { background: var(--fundo); }
 .nav.ativo { background: var(--destaque-fundo); color: var(--destaque-forte); }
 .nav.ativo svg { color: var(--destaque); }
-.nav.principal { background: var(--destaque); color: #fff; font-weight: 600; margin-bottom: 6px; }
-.nav.principal svg { color: #fff; }
+.nav.principal { background: var(--destaque); color: var(--sobre-destaque); font-weight: 600; margin-bottom: 6px; }
+.nav.principal svg { color: var(--sobre-destaque); }
 .nav.principal:hover { background: var(--destaque-forte); }
 .espaco { flex: 1; }
 .voz-estado { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--suave); padding: 8px 12px; }
@@ -65,9 +65,9 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .player { display: flex; align-items: center; gap: 8px; }
 .btn-voz { display: flex; align-items: center; gap: 8px; border: 1px solid var(--borda); background: var(--painel); border-radius: 999px; padding: 4px 12px 4px 4px; font-weight: 600; font-size: 13px; }
 .btn-voz:hover { border-color: var(--destaque); }
-.avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px; background: var(--destaque); }
+.avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--sobre-destaque); font-weight: 700; font-size: 13px; background: var(--destaque); }
 .avatar.pm_alex { background: #1f8a70; } .avatar.pm_santa { background: #b4561d; }
-.tocar { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--destaque); color: #fff; display: grid; place-items: center; box-shadow: var(--sombra); }
+.tocar { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--destaque); color: var(--sobre-destaque); display: grid; place-items: center; box-shadow: var(--sombra); }
 .tocar:hover { background: var(--destaque-forte); }
 .tocar svg { width: 22px; height: 22px; }
 .btn-vel { min-width: 46px; height: 34px; border: 1px solid var(--borda); background: var(--painel); border-radius: 9px; font-weight: 600; font-size: 13px; }
@@ -130,7 +130,7 @@ body.na-biblioteca .linha-progresso { visibility: hidden; }
 .folha { background: var(--painel); border: 1px solid var(--borda); border-radius: 16px; box-shadow: var(--sombra); padding: 36px 44px 40px; }
 .abas { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--painel); border: 1px solid var(--borda); margin-bottom: 16px; }
 .aba { border: 0; background: none; border-radius: 9px; padding: 7px 16px; font-weight: 600; font-size: 14px; color: var(--suave); }
-.aba.ativo { background: var(--destaque); color: #fff; }
+.aba.ativo { background: var(--destaque); color: var(--sobre-destaque); }
 /* navegação entre tópicos: barra compacta + sumário em gaveta */
 .nav-topico { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; }
 .nav-topico .icone { border: 1px solid var(--borda); background: var(--painel); width: 40px; height: 40px; }
@@ -162,7 +162,7 @@ body.na-biblioteca .linha-progresso { visibility: hidden; }
 .lista-topicos .lido .num { background: var(--destaque-fundo); color: var(--destaque); border-color: transparent; }
 .lista-topicos .lido .tt { color: var(--suave); }
 .lista-topicos .atual { background: var(--destaque-fundo); }
-.lista-topicos .atual .num { background: var(--destaque); color: #fff; border-color: var(--destaque); }
+.lista-topicos .atual .num { background: var(--destaque); color: var(--sobre-destaque); border-color: var(--destaque); }
 .lista-topicos .atual .tt { font-weight: 600; color: var(--destaque-forte); }
 .lista-topicos .nada { color: var(--suave); padding: 12px; font-size: 14px; }
 h2.titulo { font-size: 28px; letter-spacing: -.02em; margin: 0 0 18px; line-height: 1.25; }
@@ -194,10 +194,11 @@ body.modo-cartoes .player { visibility: hidden; }
 .cartoes-topo label { display: flex; gap: 6px; align-items: center; }
 .sec { border: 1px solid var(--destaque); color: var(--destaque); background: none; border-radius: 8px; padding: 6px 12px; font-weight: 600; }
 .sec:disabled { opacity: .5; cursor: default; }
-.pri { border: 0; background: var(--destaque); color: #fff; border-radius: 10px; padding: 10px 18px; font-weight: 600; font-size: 15px; }
+.pri { border: 0; background: var(--destaque); color: var(--sobre-destaque); border-radius: 10px; padding: 10px 18px; font-weight: 600; font-size: 15px; }
 .pri:hover { background: var(--destaque-forte); }
 .pri:disabled { opacity: .5; cursor: default; }
 .placar { display: flex; justify-content: space-between; font-size: 13px; color: var(--suave); margin-bottom: 6px; }
+.placar b.ok { color: var(--ok); font-weight: 600; } .placar b.erro { color: var(--erro); font-weight: 600; }
 .barra-dominio { height: 6px; border-radius: 99px; background: var(--borda); overflow: hidden; margin-bottom: 22px; }
 .barra-dominio i { display: block; height: 100%; background: var(--destaque); border-radius: 99px; transition: width .4s; }
 .flash { background: var(--painel); border: 1px solid var(--borda); border-radius: 18px; box-shadow: var(--sombra); min-height: 260px; padding: 28px 26px;
@@ -400,6 +401,6 @@ body.modo-cartoes .player { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js"></script>
+<script type="module" src="app.js?v=20261025022506"></script>
 </body>
 </html>

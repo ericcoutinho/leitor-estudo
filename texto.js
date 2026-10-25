@@ -108,4 +108,19 @@ export function pronuncia(texto, extra = {}) {
   return Object.keys(mapa).length ? texto.replace(padrao(mapa), (m) => mapa[m.toLowerCase()]) : texto;
 }
 
-export const paraFala = (texto, extra) => normalizar(pronuncia(texto, extra));
+// Termos em inglês: em vez da grafia aportuguesada, vão marcados ⟦assim⟧ e a voz usa a fonética do inglês
+// (voz-worker.js). Lista = termos da base + os que a IA achou no material ("ingles") + chaves da "pronuncia" antiga.
+const TERMOS_BASE = [...Object.keys(BASE).filter((t) => !["kpi", "roi", "ceo", "rh"].includes(t)),
+  "data warehouse", "data warehouses", "data mart", "data mining", "data lake", "data science", "data scientist", "big data",
+  "business intelligence", "dashboard", "dashboards", "snowflake", "star schema", "power bi", "tableau", "excel", "pentaho",
+  "data integration", "spoon", "kitchen", "pan", "ibm", "watson", "nosql", "query", "queries", "insight", "drill down",
+  "drill up", "roll up", "slice", "dice", "machine learning", "deep learning", "framework", "software", "hardware", "cloud"];
+export function marcarIngles(texto, estudo) {
+  const termos = [...new Set([...TERMOS_BASE, ...(estudo?.ingles || []), ...Object.keys(estudo?.pronuncia || {})]
+    .map((t) => String(t).trim().toLowerCase()).filter((t) => t.length > 1 && /[a-z]/.test(t)))];
+  if (!termos.length) return texto;
+  const re = new RegExp(String.raw`(?<![\p{L}\d-])(` + termos.sort((a, b) => b.length - a.length).map(esc).join("|") + String.raw`)(?![\p{L}\d-])`, "giu");
+  return texto.replace(re, "⟦$1⟧");
+}
+// português normalizado (números, abreviações); o que está ⟦em inglês⟧ fica como está
+export const paraFala = (texto, estudo) => marcarIngles(texto, estudo).split(/(⟦[^⟧]*⟧)/).map((p) => (p.startsWith("⟦") ? p : normalizar(p))).join("");
