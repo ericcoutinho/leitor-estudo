@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025040427";
+import { paraFala } from "./texto.js?v=20261025040647";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -328,7 +328,7 @@ function abrirMenu(id, botao) {
   pop.style.top = (embaixo ? r.bottom + 8 : r.top - h - 8) + "px";
 }
 const fecharMenus = () => document.querySelectorAll(".pop").forEach((p) => (p.hidden = true));
-document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btnVoz, #btnVel, #btnMais, #btnPomo, #btnPomoNav")) fecharMenus(); });
+document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btnVoz, #btnVel, #btnMais, #btnPomo, #btnPomoNav, #btnVolume")) fecharMenus(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { fecharMenus(); fecharModais(); } });
 
 const VOZES = [["pf_dora", "Dora", "feminina"], ["pm_alex", "Alex", "masculina"], ["pm_santa", "Santa", "masculina"]];
@@ -336,6 +336,29 @@ const VELS = ["0.8", "0.9", "1.0", "1.1", "1.25", "1.5"];
 let vozAtual = lembrar("voz", "pf_dora"), velAtual = lembrar("vel", "1.0");
 if (!VELS.includes(velAtual)) velAtual = "1.0";
 const amostra = new Audio();
+
+// ---------- volume (vale para a leitura, as explicações, os flash cards e as amostras) ----------
+let volume = lembrar("volume", 100), mudo = lembrar("mudo", false);
+const ICONES_VOLUME = {
+  mudo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></svg>',
+  baixo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7"/></svg>',
+  alto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>',
+};
+function aplicarVolume() {
+  const v = mudo ? 0 : volume / 100;
+  audio.volume = v; amostra.volume = v;
+  const icone = mudo || !volume ? ICONES_VOLUME.mudo : volume < 50 ? ICONES_VOLUME.baixo : ICONES_VOLUME.alto;
+  for (const b of [$("#btnVolume"), $("#mudoPop")]) { b.innerHTML = icone; b.classList.toggle("mudo", mudo || !volume); }
+  $("#volume").value = $("#volumePop").value = mudo ? 0 : volume;
+  $("#volumeValor").textContent = (mudo ? 0 : volume) + "%";
+  $("#btnVolume").setAttribute("aria-label", mudo ? "Volume: mudo" : `Volume: ${volume}%`);
+}
+function alternarMudo() { mudo = !mudo; if (!mudo && !volume) volume = 60; guardar("mudo", mudo); guardar("volume", volume); aplicarVolume(); }
+function mudarVolume(v) { volume = +v; mudo = !volume; guardar("volume", volume); guardar("mudo", mudo); aplicarVolume(); }
+// no computador o ícone liga/desliga o mudo (a barra fica ao lado); no celular abre a barra num menu
+$("#btnVolume").onclick = () => (matchMedia("(max-width: 820px)").matches ? abrirMenu("#popVolume", $("#btnVolume")) : alternarMudo());
+$("#mudoPop").onclick = alternarMudo;
+$("#volume").oninput = $("#volumePop").oninput = (e) => mudarVolume(e.target.value);
 const virgula = (v) => String(+v).replace(".", ",");
 function mostrarVoz() {
   const [, nome] = VOZES.find((v) => v[0] === vozAtual) || VOZES[0];
@@ -407,7 +430,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025040427", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025040647", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -918,6 +941,7 @@ document.onkeydown = (e) => {
   if (e.code === "Space") { e.preventDefault(); $("#tocar").click(); }
   if (e.code === "ArrowLeft") $("#fraseAnt").click();
   if (e.code === "ArrowRight") $("#fraseProx").click();
+  if (e.code === "KeyM") alternarMudo();
 };
 
 // ---------- flash cards ----------
@@ -1461,6 +1485,7 @@ function montarGuiado() {
 }
 
 mostrarVoz();
+aplicarVolume(); // aqui embaixo: o elemento de áudio só existe depois do bloco da leitura
 mostrarBiblioteca();
 if (lembrar("voz", null) === null) boasVindas();
 function boasVindas() {
@@ -1687,7 +1712,7 @@ function desenharSono() {
 function encerrarSono(msg) {
   sono = { fim: 0, topico: null }; $("#sonoTimer").value = "0"; desenharSono();
   // abaixa o volume aos poucos antes de parar (não acordar com um corte seco)
-  let v = 1; const t = setInterval(() => { v -= 0.1; audio.volume = Math.max(0, v); if (v <= 0) { clearInterval(t); parar(); audio.volume = 1; toast(msg, [], 6000); } }, 200);
+  let v = audio.volume; const passo = v / 10; const t = setInterval(() => { v -= passo; audio.volume = Math.max(0, v); if (v <= 0.001) { clearInterval(t); parar(); aplicarVolume(); toast(msg, [], 6000); } }, 200);
 }
 setInterval(() => {
   if (sono.fim && Date.now() >= sono.fim && tocando) encerrarSono("Leitura desligada pelo timer. Boa noite!");
