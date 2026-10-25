@@ -440,7 +440,11 @@ function montar(t, p = 0) {
   topico = Math.max(0, Math.min(t, estudo.topicos.length - 1));
   const tp = estudo.topicos[topico];
   const span = (texto, tipo) => { fila.push({ texto, tipo }); return `<span class="frase" data-i="${fila.length - 1}">${esc(texto)}</span> `; };
-  let html = faixaIa() + abas() + `<div class="topicos">${estudo.topicos.map((x, i) => `<button class="chip ${i === topico ? "ativo" : i < topico ? "feito" : ""}" data-t="${i}">${i + 1}. ${esc(x.titulo)}</button>`).join("")}</div>`;
+  const n = estudo.topicos.length;
+  let html = faixaIa() + abas() + `<div class="nav-topico">
+    <button class="icone" id="topAnt" title="Tópico anterior" aria-label="Tópico anterior" ${topico ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
+    <button class="btn-sumario" id="abrirSumario" title="Ver todos os tópicos"><span class="n">${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
+    <button class="icone" id="topProx" title="Próximo tópico" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
   html += `<div class="folha"><h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
   if (tp.resumo) {
     fila.push({ texto: "Resumindo.", tipo: "aviso" });
@@ -459,7 +463,9 @@ function montar(t, p = 0) {
   $("#coluna").innerHTML = html;
   ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
-  document.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { const t = tocando; parar(); montar(+c.dataset.t); if (t) tocar(); }));
+  $("#topAnt").onclick = () => irTopico(topico - 1);
+  $("#topProx").onclick = () => irTopico(topico + 1);
+  $("#abrirSumario").onclick = abrirSumario;
   document.querySelectorAll(".frase").forEach((f) => (f.onclick = () => { parar(); ir(+f.dataset.i); tocar(); })); // tocar numa frase lê dali
   document.querySelectorAll(".r.oculta").forEach((r) => (r.onclick = () => r.classList.remove("oculta")));
   $("#apagar").onclick = () => {
@@ -470,6 +476,39 @@ function montar(t, p = 0) {
   ir(Math.min(p, fila.length - 1));
   $(".conteudo").scrollTop = 0;
 }
+
+// ---------- sumário (gaveta com todos os tópicos) ----------
+function irTopico(t) {
+  if (!estudo || t < 0 || t >= estudo.topicos.length) return;
+  const tocava = tocando; parar(); fecharSumario(); montar(t); if (tocava) tocar();
+}
+function listarTopicos() {
+  const busca = $("#buscaTopico").value.trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+  const itens = estudo.topicos.map((t, i) => ({ t, i })).filter(({ t, i }) =>
+    !busca || `${i + 1} ${t.titulo}`.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").includes(busca));
+  $("#listaTopicos").innerHTML = itens.length ? itens.map(({ t, i }) =>
+    `<li><button data-t="${i}" class="${i === topico ? "atual" : i < topico ? "lido" : ""}" ${i === topico ? 'aria-current="true"' : ""}>
+      <span class="num">${i < topico ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : i + 1}</span>
+      <span class="tt">${esc(t.titulo)}</span></button></li>`).join("") : '<li class="nada">Nenhum tópico com esse nome.</li>';
+  document.querySelectorAll("#listaTopicos [data-t]").forEach((b) => (b.onclick = () => irTopico(+b.dataset.t)));
+}
+function abrirSumario() {
+  if (!estudo?.topicos.length) return;
+  fecharMenus();
+  const pct = Math.round((lembrar("pos:" + estudo.id, {}).pct || 0) * 100);
+  $("#sumarioInfo").textContent = `${estudo.topicos.length} tópicos · ${pct}% lido`;
+  $("#buscaTopico").value = "";
+  listarTopicos();
+  $("#sumario").hidden = $("#fundoSumario").hidden = false;
+  $("#listaTopicos .atual")?.scrollIntoView({ block: "center" });
+  if (matchMedia("(min-width: 821px)").matches) $("#buscaTopico").focus();
+}
+function fecharSumario() { $("#sumario").hidden = $("#fundoSumario").hidden = true; }
+$("#buscaTopico").oninput = listarTopicos;
+$("#fecharSumario").onclick = fecharSumario;
+$("#fundoSumario").onclick = fecharSumario;
+$("#btnSumarioTopo").onclick = abrirSumario;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharSumario(); });
 
 function ir(i) {
   pos = Math.max(0, Math.min(i, fila.length - 1));

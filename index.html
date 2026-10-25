@@ -131,10 +131,40 @@ body.na-biblioteca .linha-progresso { visibility: hidden; }
 .abas { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--painel); border: 1px solid var(--borda); margin-bottom: 16px; }
 .aba { border: 0; background: none; border-radius: 9px; padding: 7px 16px; font-weight: 600; font-size: 14px; color: var(--suave); }
 .aba.ativo { background: var(--destaque); color: #fff; }
-.topicos { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 26px; }
-.chip { border: 1px solid var(--borda); background: var(--painel); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--suave); }
-.chip.ativo { background: var(--destaque); border-color: var(--destaque); color: #fff; }
-.chip.feito { color: var(--lido); }
+/* navegação entre tópicos: barra compacta + sumário em gaveta */
+.nav-topico { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+.nav-topico .icone { border: 1px solid var(--borda); background: var(--painel); width: 40px; height: 40px; }
+.nav-topico .icone:disabled { opacity: .35; cursor: default; }
+.btn-sumario { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; border: 1px solid var(--borda); background: var(--painel);
+  border-radius: 10px; padding: 8px 12px; text-align: left; height: 40px; }
+.btn-sumario:hover { border-color: var(--destaque); }
+.btn-sumario .n { font-size: 12px; font-weight: 600; color: var(--destaque); white-space: nowrap; }
+.btn-sumario b { flex: 1; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn-sumario svg { width: 18px; height: 18px; color: var(--suave); }
+.fundo-gaveta { position: fixed; inset: 0; background: rgba(15,20,30,.35); z-index: 45; }
+.fundo-gaveta[hidden], .gaveta[hidden] { display: none; }
+.gaveta { position: fixed; top: 0; bottom: 0; left: 0; width: min(400px, 100vw); z-index: 46; background: var(--painel); border-right: 1px solid var(--borda);
+  box-shadow: 12px 0 40px rgba(0,0,0,.15); display: flex; flex-direction: column; animation: entrar .18s ease; }
+@keyframes entrar { from { transform: translateX(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.gaveta-cab { display: flex; align-items: center; gap: 10px; padding: 16px 16px 10px; }
+.gaveta-cab div { flex: 1; display: grid; }
+.gaveta-cab b { font-size: 17px; }
+.gaveta-cab small { color: var(--suave); font-size: 13px; }
+.busca { margin: 0 16px 10px; position: relative; }
+.busca svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--suave); }
+.busca input { width: 100%; border: 1px solid var(--borda); background: var(--fundo); border-radius: 10px; padding: 9px 12px 9px 34px; }
+.lista-topicos { list-style: none; margin: 0; padding: 0 8px 16px; overflow: auto; flex: 1; }
+.lista-topicos button { width: 100%; display: flex; align-items: flex-start; gap: 12px; border: 0; background: none; border-radius: 10px; padding: 9px 10px; text-align: left; }
+.lista-topicos button:hover { background: var(--fundo); }
+.lista-topicos .num { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  background: var(--fundo); color: var(--suave); border: 1px solid var(--borda); }
+.lista-topicos .tt { padding-top: 3px; line-height: 1.35; }
+.lista-topicos .lido .num { background: var(--destaque-fundo); color: var(--destaque); border-color: transparent; }
+.lista-topicos .lido .tt { color: var(--suave); }
+.lista-topicos .atual { background: var(--destaque-fundo); }
+.lista-topicos .atual .num { background: var(--destaque); color: #fff; border-color: var(--destaque); }
+.lista-topicos .atual .tt { font-weight: 600; color: var(--destaque-forte); }
+.lista-topicos .nada { color: var(--suave); padding: 12px; font-size: 14px; }
 h2.titulo { font-size: 28px; letter-spacing: -.02em; margin: 0 0 18px; line-height: 1.25; }
 .texto { font: 19px/1.75 "Source Serif 4", Georgia, serif; }
 .texto p { margin: 0 0 .9em; }
@@ -278,6 +308,7 @@ body.modo-cartoes .player { visibility: hidden; }
     <header class="topo">
       <div class="esq">
         <button class="icone so-leitura" id="voltar" title="Voltar à biblioteca" aria-label="Voltar à biblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button class="icone so-leitura" id="btnSumarioTopo" title="Sumário dos tópicos" aria-label="Sumário dos tópicos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
         <span class="titulo-material so-leitura" id="tituloMaterial"></span>
         <span class="titulo-material so-biblioteca">Biblioteca</span>
       </div>
@@ -339,6 +370,16 @@ body.modo-cartoes .player { visibility: hidden; }
     </div>
   </div>
 </div>
+
+<!-- sumário dos tópicos -->
+<div class="fundo-gaveta" id="fundoSumario" hidden></div>
+<aside class="gaveta" id="sumario" hidden role="dialog" aria-label="Sumário">
+  <div class="gaveta-cab"><div><b>Sumário</b><small id="sumarioInfo"></small></div>
+    <button class="icone" id="fecharSumario" aria-label="Fechar sumário"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+  <label class="busca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="search" id="buscaTopico" placeholder="Buscar tópico" aria-label="Buscar tópico"></label>
+  <ol class="lista-topicos" id="listaTopicos"></ol>
+</aside>
 
 <!-- menus do player -->
 <div class="pop" id="popVoz" hidden role="menu"><h3>Voz</h3><div id="listaVozes"></div></div>
