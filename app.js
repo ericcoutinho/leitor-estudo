@@ -1,14 +1,49 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025030414";
+import { paraFala } from "./texto.js?v=20261025032111";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
 const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 const PAUSA = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
-const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
-const lembrar = (k, padrao) => { try { return JSON.parse(localStorage.getItem(k)) ?? padrao; } catch { return padrao; } };
+// Materiais, progresso e cartões ficam no IndexedDB (aguenta centenas de MB; o localStorage só ~5 MB, e dois ou três
+// PDFs grandes estouravam). Por cima dele há um espelho em memória: o resto do código lê e grava na hora, e a gravação
+// no banco acontece em segundo plano. Ajustes pequenos (voz, tema, pomodoro…) continuam no localStorage.
+const NO_BANCO = /^(estudo:|estudos$|pos:|caixas:)/;
+const espelho = new Map();
+let banco = null;
+const pedido = (r) => new Promise((ok, falha) => { r.onsuccess = () => ok(r.result); r.onerror = () => falha(r.error); });
+const loja = (modo) => banco.transaction("dados", modo).objectStore("dados");
+try {
+  const abrindo = indexedDB.open("leitor-estudo", 1);
+  abrindo.onupgradeneeded = () => abrindo.result.createObjectStore("dados");
+  banco = await pedido(abrindo);
+  const [chaves, valores] = await Promise.all([pedido(loja("readonly").getAllKeys()), pedido(loja("readonly").getAll())]);
+  chaves.forEach((k, i) => espelho.set(k, valores[i]));
+  // versões antigas guardavam tudo no localStorage: passa para o banco uma vez e libera o espaço
+  for (const k of Object.keys(localStorage).filter((k) => NO_BANCO.test(k))) {
+    if (!espelho.has(k)) { espelho.set(k, localStorage.getItem(k)); await pedido(loja("readwrite").put(localStorage.getItem(k), k)); }
+    localStorage.removeItem(k);
+  }
+} catch { banco = null; } // navegador sem IndexedDB: continua no localStorage
+function guardar(k, v) {
+  const txt = JSON.stringify(v);
+  if (banco && NO_BANCO.test(k)) {
+    espelho.set(k, txt);
+    pedido(loja("readwrite").put(txt, k)).catch(() => toast("Não deu para salvar neste navegador (espaço cheio?). Exporte um backup em Configurações."));
+    return true;
+  }
+  try { localStorage.setItem(k, txt); return true; } catch { return false; }
+}
+function lembrar(k, padrao) {
+  try { const txt = banco && NO_BANCO.test(k) ? espelho.get(k) : localStorage.getItem(k); return txt == null ? padrao : JSON.parse(txt) ?? padrao; } catch { return padrao; }
+}
+function apagarChave(k) {
+  espelho.delete(k);
+  if (banco) pedido(loja("readwrite").delete(k)).catch(() => {});
+  try { localStorage.removeItem(k); } catch {}
+}
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 // ---------- extração e limpeza do texto ----------
@@ -331,7 +366,10 @@ function mostrarBiblioteca() {
   const lista = indice();
   const soltar = `<label class="soltar" id="soltarBiblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
     <h2>${lista.length ? "Adicionar outro material" : "Comece pelo material da prova"}</h2><p>Arraste um PDF, Word ou texto aqui, ou <b style="color:var(--destaque)">clique para escolher</b></p></label>`;
-  $("#coluna").innerHTML = `<div class="cab"><h1>Biblioteca<small>${lista.length || ""}</small></h1>${lista.length ? '<button class="pri" id="novoCab">+ Novo material</button>' : ""}</div>` +
+  const ult = lembrar("ultimo", null), ultE = ult && lista.find((e) => e.id === ult), ultPos = ultE && lembrar("pos:" + ult, null);
+  const continuar = ultE && ultPos ? `<button class="continuar-card" id="continuarCard"><span class="play-c"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+    <div><small>Continuar de onde parou</small><b>${esc(ultE.titulo)}</b><small>Tópico ${ultPos.topico + 1} de ${ultE.topicos}${ultPos.pct ? ` · ${Math.round(ultPos.pct * 100)}% lido` : ""}</small></div></button>` : "";
+  $("#coluna").innerHTML = continuar + `<div class="cab"><h1>Biblioteca<small>${lista.length || ""}</small></h1>${lista.length ? '<button class="pri" id="novoCab">+ Novo material</button>' : ""}</div>` +
     (lista.length ? `<div class="lista">${lista.map((e) => {
       const salvo = lembrar("pos:" + e.id, {}), pct = Math.round((salvo.pct || 0) * 100);
       const ia = e.organizado_por !== "sem IA";
@@ -344,6 +382,7 @@ function mostrarBiblioteca() {
     }).join("")}</div><div style="margin-top:18px">${soltar}</div>` : soltar);
   // o clique na área de soltar abre a janela, onde fica o interruptor de organizar com IA
   $("#soltarBiblioteca").onclick = (ev) => { ev.preventDefault(); abrirModal("#modalNovo"); };
+  $("#continuarCard") && ($("#continuarCard").onclick = () => abrir(ult));
   $("#novoCab") && ($("#novoCab").onclick = () => abrirModal("#modalNovo"));
   document.querySelectorAll(".material").forEach((m) => {
     m.onclick = (ev) => { if (!ev.target.closest(".apagar-item")) abrir(m.dataset.id); };
@@ -355,14 +394,14 @@ function mostrarBiblioteca() {
   }));
 }
 function apagarMaterial(id) {
-  try { localStorage.removeItem("estudo:" + id); localStorage.removeItem("pos:" + id); localStorage.removeItem("caixas:" + id); } catch {}
+  for (const k of ["estudo:", "pos:", "caixas:"]) apagarChave(k + id);
   guardar("estudos", indice().filter((e) => e.id !== id));
 }
 // a lista só aparece na tela da biblioteca; nas outras telas não há o que atualizar
 function carregarLista() { if (!estudo && !preparo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025030414", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025032111", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -431,6 +470,7 @@ function abrir(id) {
   estudo = lembrar("estudo:" + id, null);
   if (!estudo) return;
   preparo = null;
+  try { localStorage.setItem("ultimo", JSON.stringify(id)); } catch {}
   modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "na-biblioteca");
   $("#navBiblioteca").classList.remove("ativo"); $("#tituloMaterial").textContent = estudo.titulo;
   const salvo = lembrar("pos:" + id, { topico: 0, pos: 0 });
@@ -778,6 +818,7 @@ async function tocar() {
   const ativa = () => tocando && g === geracao;
   tocando = true; $("#tocar").innerHTML = PAUSA;
   pomoAoEstudar();
+  sessaoMidia();
   while (ativa()) {
     const it = fila[pos];
     if (!it) {
@@ -826,6 +867,7 @@ function carregando(sim) {
   b.title = sim ? "Gerando a voz…" : "Tocar / pausar (espaço)";
 }
 function parar() {
+  if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
   if (ouvindo) { ouvindo = null; marcarOuvindo(); }
   carregando(false);
   tocando = false; $("#tocar").innerHTML = PLAY; audio.onpause = null; audio.pause();
@@ -1195,3 +1237,117 @@ function toast(texto, botoes = [], ms = 5000) {
   toastTm = setTimeout(() => ($("#toast").hidden = true), ms);
 }
 desenharPomo();
+
+
+// ---------- tela de bloqueio do celular: título do tópico e controles (play/pause, frase anterior/próxima) ----------
+function sessaoMidia() {
+  if (!("mediaSession" in navigator) || !estudo) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: estudo.topicos[topico]?.titulo || estudo.titulo, artist: estudo.titulo, album: "Leitor de Estudo",
+    artwork: [{ src: "icone-192.png", sizes: "192x192", type: "image/png" }, { src: "icone-512.png", sizes: "512x512", type: "image/png" }],
+  });
+  navigator.mediaSession.playbackState = "playing";
+}
+if ("mediaSession" in navigator) {
+  const acao = (nome, f) => { try { navigator.mediaSession.setActionHandler(nome, f); } catch {} };
+  acao("play", () => { if (estudo && !tocando) tocar(); });
+  acao("pause", () => parar());
+  acao("previoustrack", () => $("#fraseAnt").click());
+  acao("nexttrack", () => $("#fraseProx").click());
+}
+
+// ---------- desligar a leitura depois de X minutos (ou no fim do tópico), para ouvir antes de dormir ----------
+let sono = { fim: 0, topico: null };
+$("#sonoTimer").onchange = () => {
+  const v = $("#sonoTimer").value;
+  sono = v === "0" ? { fim: 0, topico: null } : v === "topico" ? { fim: 0, topico: estudo ? topico : null } : { fim: Date.now() + +v * 60000, topico: null };
+  if (v !== "0") toast(v === "topico" ? "A leitura vai parar no fim deste tópico." : `A leitura vai parar em ${v} minutos.`, [], 3000);
+  desenharSono();
+};
+function desenharSono() {
+  const r = sono.fim ? sono.fim - Date.now() : 0;
+  $("#sonoResta").textContent = sono.fim ? `para em ${Math.ceil(r / 60000)} min` : sono.topico != null ? "para no fim deste tópico" : "";
+}
+function encerrarSono(msg) {
+  sono = { fim: 0, topico: null }; $("#sonoTimer").value = "0"; desenharSono();
+  // abaixa o volume aos poucos antes de parar (não acordar com um corte seco)
+  let v = 1; const t = setInterval(() => { v -= 0.1; audio.volume = Math.max(0, v); if (v <= 0) { clearInterval(t); parar(); audio.volume = 1; toast(msg, [], 6000); } }, 200);
+}
+setInterval(() => {
+  if (sono.fim && Date.now() >= sono.fim && tocando) encerrarSono("Leitura desligada pelo timer. Boa noite!");
+  else if (sono.fim && Date.now() >= sono.fim) { sono = { fim: 0, topico: null }; $("#sonoTimer").value = "0"; }
+  if (sono.topico != null && estudo && topico !== sono.topico && tocando) encerrarSono("Fim do tópico: leitura desligada pelo timer.");
+  desenharSono();
+}, 1000);
+
+// ---------- aparência: tema e tamanho da letra ----------
+function aplicarTema() {
+  const t = lembrar("tema", "sistema");
+  if (t === "sistema") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  document.querySelectorAll("[data-tema]").forEach((b) => b.classList.toggle("ativo", b.dataset.tema === t));
+  const escuro = t === "dark" || (t === "sistema" && matchMedia("(prefers-color-scheme: dark)").matches);
+  $('meta[name="theme-color"]').content = escuro ? "#1f2227" : "#2563c9";
+}
+document.querySelectorAll("[data-tema]").forEach((b) => (b.onclick = () => { guardar("tema", b.dataset.tema); aplicarTema(); }));
+const ESCALAS = [0.85, 0.92, 1, 1.1, 1.2, 1.35, 1.5];
+function aplicarLetra() {
+  const e = lembrar("escalaTexto", 1);
+  document.documentElement.style.setProperty("--escala-texto", e);
+  $("#letraValor").textContent = Math.round(e * 100) + "%";
+  $("#letraMenos").disabled = e <= ESCALAS[0]; $("#letraMais").disabled = e >= ESCALAS.at(-1);
+}
+const passoLetra = (d) => { const i = ESCALAS.indexOf(lembrar("escalaTexto", 1)); guardar("escalaTexto", ESCALAS[Math.max(0, Math.min(ESCALAS.length - 1, (i < 0 ? 2 : i) + d))]); aplicarLetra(); };
+$("#letraMenos").onclick = () => passoLetra(-1);
+$("#letraMais").onclick = () => passoLetra(1);
+aplicarTema(); aplicarLetra();
+
+// ---------- backup: exportar e importar a biblioteca (um arquivo .json) ----------
+const PREFS_BACKUP = ["voz", "vel", "pensar", "prefPerguntas", "prefResumo", "usarIa", "lerCartao", "pomo", "tema", "escalaTexto", "ultimo"];
+$("#exportar").onclick = () => {
+  const dados = {};
+  for (const k of espelho.keys()) dados[k] = espelho.get(k);
+  if (!banco) for (const k of Object.keys(localStorage).filter((k) => NO_BANCO.test(k))) dados[k] = localStorage.getItem(k);
+  for (const k of PREFS_BACKUP) { const v = localStorage.getItem(k); if (v != null) dados[k] = v; } // a chave da IA fica de fora de propósito
+  const arquivo = new Blob([JSON.stringify({ app: "leitor-estudo", versao: 1, criado: new Date().toISOString(), dados })], { type: "application/json" });
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(arquivo), download: `leitor-estudo-backup-${new Date().toISOString().slice(0, 10)}.json` });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`Backup salvo: ${indice().length} materiais. A chave da IA não vai junto.`, [], 5000);
+};
+$("#importar").onchange = async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  if (!f) return;
+  try {
+    const b = JSON.parse(await f.text());
+    if (b.app !== "leitor-estudo" || !b.dados) throw new Error("este arquivo não é um backup do Leitor de Estudo");
+    const atuais = indice(), vindos = JSON.parse(b.dados.estudos || "[]");
+    for (const [k, v] of Object.entries(b.dados)) {
+      if (k === "estudos") continue;
+      if (NO_BANCO.test(k)) guardar(k, JSON.parse(v)); else if (PREFS_BACKUP.includes(k)) try { localStorage.setItem(k, v); } catch {}
+    }
+    // junta as listas: o que veio do backup substitui o material de mesmo id; o resto continua
+    guardar("estudos", [...vindos, ...atuais.filter((e) => !vindos.some((x) => x.id === e.id))]);
+    fecharModais(); aplicarTema(); aplicarLetra(); mostrarVoz(); mostrarBiblioteca();
+    toast(`Backup importado: ${vindos.length} materiais.`, [], 5000);
+  } catch (err) { toast("Não deu para importar: " + err.message, [], 7000); }
+};
+async function mostrarEspaco() {
+  try { const { usage } = await navigator.storage.estimate(); $("#espacoUsado").textContent = `Espaço usado neste navegador: ${(usage / 1048576).toFixed(1).replace(".", ",")} MB (inclui a voz).`; } catch {}
+}
+
+// ---------- instalar como app (PWA): funciona sem internet para o que já está salvo ----------
+let pedidoInstalar = null;
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); pedidoInstalar = e; textoInstalar(); });
+addEventListener("appinstalled", () => { pedidoInstalar = null; textoInstalar(); toast("Leitor de Estudo instalado! Ele aparece junto com os seus apps.", [], 5000); });
+function textoInstalar() {
+  const instalado = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  $("#btnInstalar").hidden = !pedidoInstalar || instalado;
+  $("#textoInstalar").textContent = instalado ? "Você já está usando o app instalado. Ele abre sem a barra do navegador e funciona sem internet para os materiais salvos."
+    : pedidoInstalar ? "Instale para abrir pelo ícone, sem a barra do navegador, e estudar até sem internet (os materiais já salvos)."
+    : ios ? "No iPhone: toque em Compartilhar (quadrado com seta) e depois em “Adicionar à Tela de Início”."
+    : "No Chrome ou Edge: menu ⋮ → “Instalar app” (ou o ícone de instalar na barra de endereço). No celular Android: menu ⋮ → “Adicionar à tela inicial”.";
+}
+$("#btnInstalar").onclick = async () => { if (!pedidoInstalar) return; pedidoInstalar.prompt(); await pedidoInstalar.userChoice.catch(() => {}); pedidoInstalar = null; textoInstalar(); };
+$("#btnConfig").addEventListener("click", () => { textoInstalar(); mostrarEspaco(); });
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+textoInstalar();
