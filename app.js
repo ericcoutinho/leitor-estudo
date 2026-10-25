@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025025009";
+import { paraFala } from "./texto.js?v=20261025025521";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -196,6 +196,7 @@ async function criarMaterial(titulo, texto, tipo) {
   mostrarPreparo({ id: e.id, titulo, etapa: "organizando", palavras: texto.split(/\s+/).length, erro: null });
   await processar(e, chave);
   organizando.delete(e.id);
+  if (estudo?.id === e.id && !tocando) montar(topico, pos); // tira a faixa "organizando"
   carregarLista();
 }
 
@@ -361,7 +362,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025025009", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025025521", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -443,7 +444,10 @@ const organizando = new Set();
 function faixaIa() {
   $("#btnIaTopo").hidden = organizando.has(estudo.id) || !(estudo.pendentes?.length || estudo.organizado_por === "sem IA");
   $("#btnIaTopo").querySelector(".rotulo-ia").textContent = estudo.pendentes?.length ? "Continuar organizando" : "Organizar com IA";
-  if (organizando.has(estudo.id)) return `<div class="continuar">Organizando com IA… o andamento aparece logo abaixo do topo.</div>`;
+  if (organizando.has(estudo.id)) {
+    const a = andamento.get(estudo.id);
+    return `<div class="continuar"><span class="pensando"></span>Organizando com IA${a ? `: parte ${a.n} de ${a.total}` : "…"} Os próximos tópicos aparecem aqui sozinhos.</div>`;
+  }
   if (estudo.pendentes?.length)
     return `<div class="continuar">Faltam ${estudo.pendentes.length} de ${estudo.partes_total} partes para organizar. <button id="btnIa">Continuar organizando</button></div>`;
   if (estudo.organizado_por === "sem IA")
@@ -757,6 +761,7 @@ async function tocar() {
   const g = ++geracao;
   const ativa = () => tocando && g === geracao;
   tocando = true; $("#tocar").innerHTML = PAUSA;
+  pomoAoEstudar();
   while (ativa()) {
     const it = fila[pos];
     if (!it) {
@@ -858,6 +863,7 @@ function novaRodada() {
   const todos = baralho(estudo).filter((c) => filtroTopico === "todos" || c.t === +filtroTopico);
   sessao = todos.map((c) => ({ c, s: (cx[c.chave] || 0) + Math.random() })).sort((a, b) => a.s - b.s).map((x) => x.c);
   rodada = { total: sessao.length, acertos: 0, erros: 0 };
+  if (sessao.length) pomoAoEstudar();
   virado = false;
   montarCartoes();
 }
@@ -985,7 +991,7 @@ mostrarBiblioteca();
 // ---------- pomodoro ----------
 // Foco/pausa com relógio flutuante (pode ocultar). O fim é calculado pela hora marcada (não por contagem), então
 // continua certo com a aba em segundo plano e depois de recarregar. Aviso: som + notificação, só notificação ou só visual.
-const POMO_PADRAO = { foco: 25, pausa: 5, longa: 15, aviso: "som", mostrar: true, pararLeitura: true };
+const POMO_PADRAO = { foco: 25, pausa: 5, longa: 15, aviso: "som", mostrar: true, pararLeitura: true, auto: true };
 let pomo = { ...POMO_PADRAO, ...lembrar("pomo", {}) }; // ajustes + estado { fase, fimEm, restante, rodando, ciclo }
 pomo.fase ??= "foco"; pomo.ciclo ??= 0;
 const NOMES_FASE = { foco: "Foco", pausa: "Pausa", longa: "Pausa longa" };
@@ -1010,7 +1016,8 @@ function desenharPomo() {
   $("#pomoPlay").innerHTML = pomo.rodando ? PAUSA : PLAY;
   $("#pomoPlay").title = pomo.rodando ? "Pausar" : "Continuar";
   // no topo: tempo pequeno quando está ativo (é o único sinal quando o relógio está oculto)
-  $("#pomoMini").textContent = ativo ? mmss(r) : "";
+  $("#pomoMini").textContent = ativo ? mmss(r) : "Pomodoro"; // parado, o botão diz o que é (senão ninguém descobre)
+  $("#btnPomo").classList.toggle("parado-topo", !ativo);
   $("#pomoMiniNav").textContent = ativo ? mmss(r) : "";
   $("#btnPomo").classList.toggle("ativo", ativo);
   $("#btnPomo").classList.toggle("pausa", ativo && pausa);
@@ -1094,18 +1101,47 @@ $("#pomoAviso").onchange = () => {
 };
 $("#pomoMostrar").checked = pomo.mostrar;
 $("#pomoMostrar").onchange = () => { pomo.mostrar = $("#pomoMostrar").checked; salvarPomo(); desenharPomo(); };
+$("#pomoAuto").checked = pomo.auto;
+$("#pomoAuto").onchange = () => { pomo.auto = $("#pomoAuto").checked; salvarPomo(); };
 $("#pomoPararLeitura").checked = pomo.pararLeitura;
 $("#pomoPararLeitura").onchange = () => { pomo.pararLeitura = $("#pomoPararLeitura").checked; salvarPomo(); };
 // arrastar o relógio para outro canto (a posição fica salva)
 {
   const r = $("#relogio"), pos = lembrar("pomoPos", null);
   const colocar = (x, y) => Object.assign(r.style, { left: Math.max(4, Math.min(innerWidth - r.offsetWidth - 4, x)) + "px", top: Math.max(4, Math.min(innerHeight - r.offsetHeight - 4, y)) + "px", right: "auto", bottom: "auto" });
-  if (pos) Object.assign(r.style, { left: pos.x + "px", top: pos.y + "px", right: "auto", bottom: "auto" });
+  if (pos && !matchMedia("(max-width: 820px)").matches) Object.assign(r.style, { left: pos.x + "px", top: pos.y + "px", right: "auto", bottom: "auto" });
   let ini = null;
   r.querySelector(".arrastar").onpointerdown = (e) => { const b = r.getBoundingClientRect(); ini = { dx: e.clientX - b.left, dy: e.clientY - b.top }; r.setPointerCapture(e.pointerId); };
   r.onpointermove = (e) => { if (ini) colocar(e.clientX - ini.dx, e.clientY - ini.dy); };
   r.onpointerup = () => { if (!ini) return; ini = null; guardar("pomoPos", { x: parseInt(r.style.left), y: parseInt(r.style.top) }); };
   addEventListener("resize", () => { if (r.style.left) colocar(parseInt(r.style.left), parseInt(r.style.top)); });
 }
-document.addEventListener("click", (e) => { if (!e.target.closest("#popPomo, #btnPomo, #btnPomoNav")) $("#popPomo").hidden = true; });
+document.addEventListener("click", (e) => { if (!e.target.closest("#popPomo, #btnPomo, #btnPomoNav, #toast")) $("#popPomo").hidden = true; });
+
+// começa sozinho quando a pessoa começa a estudar (ler ou flash cards), se não houver um em andamento nem pausado por ela
+function pomoAoEstudar() {
+  const ativo = pomo.rodando || (pomo.restante != null && pomo.restante < duracao(pomo.fase));
+  if (!pomo.auto || ativo || pomo.fase !== "foco") return;
+  iniciarPomo();
+  const primeira = !lembrar("pomoApresentado", false);
+  guardar("pomoApresentado", true);
+  toast(primeira ? `🍅 Pomodoro de ${pomo.foco} min começou junto com a leitura: foco agora, pausa de ${pomo.pausa} min depois.` : `🍅 Pomodoro de ${pomo.foco} min começou.`,
+    [["Ajustar", () => abrirMenu("#popPomo", matchMedia("(max-width: 820px)").matches && document.body.classList.contains("na-biblioteca") ? $("#btnPomoNav") : $("#btnPomo"))],
+     ["Não iniciar sozinho", () => { pomo.auto = false; $("#pomoAuto").checked = false; pausarPomo(); zerarPomo(); salvarPomo(); toast("Ok, o Pomodoro só começa quando você tocar no botão dele.", [], 4000); }]],
+    primeira ? 9000 : 4000);
+}
+// aviso rápido embaixo da tela, com botões opcionais
+let toastTm;
+function toast(texto, botoes = [], ms = 5000) {
+  clearTimeout(toastTm);
+  $("#toastTexto").textContent = texto;
+  $("#toastBotoes").innerHTML = "";
+  botoes.forEach(([rotulo, f]) => {
+    const b = document.createElement("button"); b.textContent = rotulo;
+    b.onclick = (e) => { e.stopPropagation(); $("#toast").hidden = true; f(); };
+    $("#toastBotoes").append(b);
+  });
+  $("#toast").hidden = false;
+  toastTm = setTimeout(() => ($("#toast").hidden = true), ms);
+}
 desenharPomo();
