@@ -163,45 +163,156 @@ async function processar(e, chave) {
 
 async function enviar(arquivo) {
   if (!arquivo) return;
+  fecharModais();
   const st = $("#estado"); st.className = "estado";
   try {
     st.textContent = "Lendo o arquivo…";
     const texto = limpar(await extrair(arquivo));
     if (texto.length < 50) throw new Error("não achei texto no arquivo (PDF escaneado? precisa de OCR)");
-    const chave = $("#chave").value.trim();
-    const usarIa = $("#usarIa").checked && chave;
-    const agora = new Date();
-    const e = { id: String(agora.getTime()), titulo: arquivo.name.replace(/\.[^.]+$/, ""),
-      criado: agora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }),
-      organizado_por: usarIa ? "Gemini" : "sem IA", topicos: [], pronuncia: {}, pendentes: [], partes_total: 0 };
-    if (!usarIa) {
-      e.topicos = soLer(texto); salvarEstudo(e);
-      st.textContent = $("#usarIa").checked ? "Sem chave do Gemini: o material foi aberto como está." : "";
-      carregarLista(); return abrir(e.id);
-    }
-    e.pendentes = blocos(texto, 20000); e.partes_total = e.pendentes.length;
-    salvarEstudo(e); carregarLista();
-    organizando.add(e.id);
-    const ok = await processar(e, chave);
-    organizando.delete(e.id);
-    if (e.topicos.length && (ok || estudo?.id !== e.id)) abrir(e.id);
+    await criarMaterial(arquivo.name.replace(/\.[^.]+$/, ""), texto, arquivo.name.toLowerCase().split(".").pop());
   } catch (err) { st.className = "estado erro"; st.textContent = "Erro: " + err.message; }
 }
-$("#arquivo").onchange = (e) => { enviar(e.target.files[0]); e.target.value = ""; };
-const envio = $("#envio");
-envio.ondragover = (e) => { e.preventDefault(); envio.classList.add("arrastando"); };
-envio.ondragleave = () => envio.classList.remove("arrastando");
-envio.ondrop = (e) => { e.preventDefault(); envio.classList.remove("arrastando"); enviar(e.dataTransfer.files[0]); };
-$("#chave").value = lembrar("chave", "");
-$("#chave").onchange = () => guardar("chave", $("#chave").value.trim());
-if (!$("#chave").value) $("#config").open = true;
 
-function carregarLista() {
-  const lista = indice();
-  $("#lista").innerHTML = lista.length ? '<div class="rotulo">Seus materiais</div>' + lista.map((e) =>
-    `<button class="item ${estudo?.id === e.id ? "ativo" : ""}" data-id="${esc(e.id)}"><b>${esc(e.titulo)}</b><small>${e.topicos} tópicos${e.faltam ? ` (faltam ${e.faltam} partes)` : ""} · ${esc(e.criado)} · ${esc(e.organizado_por)}</small></button>`).join("") : "";
-  document.querySelectorAll(".item").forEach((b) => (b.onclick = () => abrir(b.dataset.id)));
+async function criarMaterial(titulo, texto, tipo) {
+  const st = $("#estado"); st.className = "estado";
+  const chave = $("#chave").value.trim();
+  const querIa = $("#usarIa").checked, usarIa = querIa && chave;
+  const agora = new Date();
+  const e = { id: String(agora.getTime()), titulo, tipo, criado: agora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }),
+    organizado_por: usarIa ? "Gemini" : "sem IA", topicos: [], pronuncia: {}, pendentes: [], partes_total: 0 };
+  if (!usarIa) {
+    e.topicos = soLer(texto); salvarEstudo(e);
+    st.textContent = querIa ? "Sem chave do Gemini: o material foi aberto como está. Coloque a chave em “Chave da IA” para organizar." : "";
+    return abrir(e.id);
+  }
+  e.pendentes = blocos(texto, 20000); e.partes_total = e.pendentes.length;
+  salvarEstudo(e); carregarLista();
+  organizando.add(e.id);
+  const ok = await processar(e, chave);
+  organizando.delete(e.id);
+  if (e.topicos.length && (ok || estudo?.id !== e.id)) abrir(e.id);
 }
+
+// ---------- janelas, menus e biblioteca ----------
+const abrirModal = (id) => { fecharMenus(); $(id).hidden = false; $(id).querySelector("input:not([hidden]), textarea, button.pri")?.focus(); };
+const fecharModais = () => document.querySelectorAll(".fundo-modal").forEach((m) => (m.hidden = true));
+document.querySelectorAll(".fundo-modal").forEach((m) => {
+  m.onclick = (ev) => { if (ev.target === m || ev.target.closest(".fechar")) m.hidden = true; };
+});
+$("#btnNovo").onclick = () => abrirModal("#modalNovo");
+$("#btnConfig").onclick = () => abrirModal("#modalConfig");
+$("#usarIa").checked = lembrar("usarIa", true);
+$("#usarIa").onchange = () => guardar("usarIa", $("#usarIa").checked);
+$("#arquivo").onchange = (e) => { enviar(e.target.files[0]); e.target.value = ""; };
+$("#colado").oninput = () => ($("#usarColado").disabled = $("#colado").value.trim().length < 20);
+$("#usarColado").onclick = () => {
+  const texto = limpar($("#colado").value);
+  const titulo = texto.split("\n")[0].slice(0, 60).trim() || "Texto colado";
+  $("#colado").value = ""; $("#usarColado").disabled = true; fecharModais();
+  criarMaterial(titulo, texto, "txt");
+};
+// arrastar arquivo em qualquer lugar da página
+let arrastos = 0;
+document.addEventListener("dragenter", (e) => { if (e.dataTransfer?.types.includes("Files")) { arrastos++; document.body.classList.add("arrastando"); } });
+document.addEventListener("dragleave", () => { if (--arrastos <= 0) { arrastos = 0; document.body.classList.remove("arrastando"); } });
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => {
+  e.preventDefault(); arrastos = 0; document.body.classList.remove("arrastando");
+  const f = e.dataTransfer?.files?.[0]; if (f) enviar(f);
+});
+$("#chave").value = lembrar("chave", "");
+$("#salvarChave").onclick = () => {
+  guardar("chave", $("#chave").value.trim()); fecharModais();
+  const st = $("#estado"); if (st.classList.contains("erro")) { st.textContent = ""; st.className = "estado"; }
+};
+$("#recolher").onclick = () => { document.body.classList.toggle("recolhida"); guardar("recolhida", document.body.classList.contains("recolhida")); };
+if (lembrar("recolhida", false)) document.body.classList.add("recolhida");
+$("#navBiblioteca").onclick = () => mostrarBiblioteca();
+$("#voltar").onclick = () => mostrarBiblioteca();
+
+// menus que abrem junto ao botão (voz, velocidade, mais)
+function abrirMenu(id, botao) {
+  const pop = $(id), aberto = !pop.hidden;
+  fecharMenus();
+  if (aberto) return;
+  pop.hidden = false;
+  const r = botao.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  const embaixo = r.bottom + 8 + h < innerHeight;
+  pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
+  pop.style.top = (embaixo ? r.bottom + 8 : r.top - h - 8) + "px";
+}
+const fecharMenus = () => document.querySelectorAll(".pop").forEach((p) => (p.hidden = true));
+document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btnVoz, #btnVel, #btnMais")) fecharMenus(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { fecharMenus(); fecharModais(); } });
+
+const VOZES = [["pf_dora", "Dora", "feminina"], ["pm_alex", "Alex", "masculina"], ["pm_santa", "Santa", "masculina"]];
+const VELS = ["0.8", "0.9", "1.0", "1.1", "1.25", "1.5"];
+let vozAtual = lembrar("voz", "pf_dora"), velAtual = lembrar("vel", "1.0");
+if (!VELS.includes(velAtual)) velAtual = "1.0";
+const amostra = new Audio();
+const virgula = (v) => String(+v).replace(".", ",");
+function mostrarVoz() {
+  const [, nome] = VOZES.find((v) => v[0] === vozAtual) || VOZES[0];
+  $("#avatarVoz").textContent = nome[0]; $("#avatarVoz").className = "avatar " + vozAtual; $("#nomeVoz").textContent = nome;
+  $("#btnVel").textContent = virgula(velAtual) + "x";
+  $("#listaVozes").innerHTML = VOZES.map(([id, nome, g]) => `<div class="opcao-voz ${id === vozAtual ? "ativo" : ""}">
+      <button class="ouvir" data-ouvir="${id}" title="Ouvir ${nome}" aria-label="Ouvir ${nome}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+      <button class="opcao-voz" data-voz="${id}" role="menuitemradio" aria-checked="${id === vozAtual}" style="padding:0"><span class="avatar ${id}">${nome[0]}</span><span class="nome">${nome}<small>Português (Brasil) · ${g}</small></span></button></div>`).join("");
+  $("#listaVel").innerHTML = VELS.map((v) => `<button class="opcao-vel ${v === velAtual ? "ativo" : ""}" data-vel="${v}" role="menuitemradio" aria-checked="${v === velAtual}">${virgula(v)}x${v === "1.0" ? " · normal" : ""}</button>`).join("");
+  document.querySelectorAll("[data-ouvir]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); amostra.src = `amostras/${b.dataset.ouvir}.mp3`; amostra.play().catch(() => {}); }));
+  document.querySelectorAll("[data-voz]").forEach((b) => (b.onclick = () => trocarAjuste(() => (vozAtual = b.dataset.voz), "voz")));
+  document.querySelectorAll("[data-vel]").forEach((b) => (b.onclick = () => trocarAjuste(() => (velAtual = b.dataset.vel), "vel")));
+}
+function trocarAjuste(f, chave) {
+  const t = tocando; parar(); f(); guardar(chave, chave === "voz" ? vozAtual : velAtual);
+  limparPre(); mostrarVoz(); fecharMenus(); if (t) tocar();
+}
+$("#btnVoz").onclick = () => abrirMenu("#popVoz", $("#btnVoz"));
+$("#btnVel").onclick = () => abrirMenu("#popVel", $("#btnVel"));
+$("#btnMais").onclick = () => abrirMenu("#popMais", $("#btnMais"));
+$("#btnIaTopo").onclick = () => organizarDepois();
+
+const ICONE_TIPO = {
+  pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>',
+  txt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+};
+
+function mostrarBiblioteca() {
+  parar(); estudo = null; modo = "ler";
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
+  $("#navBiblioteca").classList.add("ativo"); $("#linhaProgresso").style.width = "0";
+  const lista = indice();
+  const soltar = `<label class="soltar" id="soltarBiblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+    <h2>${lista.length ? "Adicionar outro material" : "Comece pelo material da prova"}</h2><p>Arraste um PDF, Word ou texto aqui, ou <b style="color:var(--destaque)">clique para escolher</b></p></label>`;
+  $("#coluna").innerHTML = `<div class="cab"><h1>Biblioteca<small>${lista.length || ""}</small></h1>${lista.length ? '<button class="pri" id="novoCab">+ Novo material</button>' : ""}</div>` +
+    (lista.length ? `<div class="lista">${lista.map((e) => {
+      const salvo = lembrar("pos:" + e.id, {}), pct = Math.round((salvo.pct || 0) * 100);
+      const ia = e.organizado_por !== "sem IA";
+      return `<div class="material" role="button" tabindex="0" data-id="${esc(e.id)}">
+        <span class="miniatura">${ICONE_TIPO[e.tipo === "pdf" ? "pdf" : "txt"]}</span>
+        <span class="info"><b>${esc(e.titulo)}</b>
+          <small><span class="etiqueta ${ia ? "ia" : ""}">${ia ? "Organizado com IA" : "Texto original"}</span> · ${e.topicos} tópicos${e.faltam ? ` · faltam ${e.faltam} partes` : ""} · ${esc(e.criado)}${pct ? ` · ${pct}% lido` : ""}</small>
+          ${pct ? `<span class="barrinha"><i style="width:${pct}%"></i></span>` : ""}</span>
+        <button class="apagar-item" data-apagar="${esc(e.id)}" title="Apagar">Apagar</button></div>`;
+    }).join("")}</div><div style="margin-top:18px">${soltar}</div>` : soltar);
+  // o clique na área de soltar abre a janela, onde fica o interruptor de organizar com IA
+  $("#soltarBiblioteca").onclick = (ev) => { ev.preventDefault(); abrirModal("#modalNovo"); };
+  $("#novoCab") && ($("#novoCab").onclick = () => abrirModal("#modalNovo"));
+  document.querySelectorAll(".material").forEach((m) => {
+    m.onclick = (ev) => { if (!ev.target.closest(".apagar-item")) abrir(m.dataset.id); };
+    m.onkeydown = (ev) => { if (ev.key === "Enter") abrir(m.dataset.id); };
+  });
+  document.querySelectorAll("[data-apagar]").forEach((b) => (b.onclick = () => {
+    if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = "Confirmar?"; return; }
+    apagarMaterial(b.dataset.apagar); mostrarBiblioteca();
+  }));
+}
+function apagarMaterial(id) {
+  try { localStorage.removeItem("estudo:" + id); localStorage.removeItem("pos:" + id); localStorage.removeItem("caixas:" + id); } catch {}
+  guardar("estudos", indice().filter((e) => e.id !== id));
+}
+// a lista só aparece na tela da biblioteca; nas outras telas não há o que atualizar
+function carregarLista() { if (!estudo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
 const worker = new Worker(new URL("./voz-worker.js", import.meta.url), { type: "module" });
@@ -254,7 +365,7 @@ async function sintetizar(texto) {
   const id = ++seq;
   return new Promise((ok, falha) => {
     pedidos.set(id, { ok, falha });
-    worker.postMessage({ tipo: "falar", id, texto: paraFala(texto, estudo?.pronuncia), voz: $("#voz").value, vel: +$("#vel").value });
+    worker.postMessage({ tipo: "falar", id, texto: paraFala(texto, estudo?.pronuncia), voz: vozAtual, vel: +velAtual });
   });
 }
 
@@ -271,7 +382,8 @@ function abrir(id) {
   parar();
   estudo = lembrar("estudo:" + id, null);
   if (!estudo) return;
-  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes");
+  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "na-biblioteca");
+  $("#navBiblioteca").classList.remove("ativo"); $("#tituloMaterial").textContent = estudo.titulo;
   const salvo = lembrar("pos:" + id, { topico: 0, pos: 0 });
   montar(salvo.topico, salvo.pos);
   carregarLista();
@@ -281,7 +393,9 @@ function abrir(id) {
 // faixa no topo do material: organizar com IA depois de aberto, ou continuar de onde o Gemini parou
 const organizando = new Set();
 function faixaIa() {
-  if (organizando.has(estudo.id)) return `<div class="continuar">Organizando com IA… acompanhe o andamento à esquerda.</div>`;
+  $("#btnIaTopo").hidden = organizando.has(estudo.id) || !(estudo.pendentes?.length || estudo.organizado_por === "sem IA");
+  $("#btnIaTopo").querySelector(".rotulo-ia").textContent = estudo.pendentes?.length ? "Continuar organizando" : "Organizar com IA";
+  if (organizando.has(estudo.id)) return `<div class="continuar">Organizando com IA… o andamento aparece logo abaixo do topo.</div>`;
   if (estudo.pendentes?.length)
     return `<div class="continuar">Faltam ${estudo.pendentes.length} de ${estudo.partes_total} partes para organizar. <button id="btnIa">Continuar organizando</button></div>`;
   if (estudo.organizado_por === "sem IA")
@@ -291,8 +405,8 @@ function faixaIa() {
 function pedirChave() {
   const chave = $("#chave").value.trim();
   if (!chave) {
-    $("#config").open = true; $("#chave").focus();
-    const st = $("#estado"); st.className = "estado erro"; st.textContent = "Cole a chave do Gemini aqui embaixo para organizar com IA.";
+    const st = $("#estado"); st.className = "estado erro"; st.textContent = "Para organizar com IA, coloque a sua chave do Gemini.";
+    abrirModal("#modalConfig");
   }
   return chave;
 }
@@ -327,7 +441,7 @@ function montar(t, p = 0) {
   const tp = estudo.topicos[topico];
   const span = (texto, tipo) => { fila.push({ texto, tipo }); return `<span class="frase" data-i="${fila.length - 1}">${esc(texto)}</span> `; };
   let html = faixaIa() + abas() + `<div class="topicos">${estudo.topicos.map((x, i) => `<button class="chip ${i === topico ? "ativo" : i < topico ? "feito" : ""}" data-t="${i}">${i + 1}. ${esc(x.titulo)}</button>`).join("")}</div>`;
-  html += `<h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
+  html += `<div class="folha"><h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
   if (tp.resumo) {
     fila.push({ texto: "Resumindo.", tipo: "aviso" });
     html += `<div class="cartao"><h3>Resumo</h3><div class="texto">${frases(tp.resumo).map((f) => span(f)).join("")}</div></div>`;
@@ -341,7 +455,7 @@ function montar(t, p = 0) {
       return `<div class="pergunta"><div class="p">${pq}</div><div class="pensar" id="pensar-${k}"></div><div class="r texto oculta">${r}</div></div>`;
     }).join("")}</div>`;
   }
-  html += `<button class="apagar" id="apagar">Apagar este material</button>`;
+  html += `</div><button class="apagar" id="apagar">Apagar este material</button>`;
   $("#coluna").innerHTML = html;
   ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
@@ -351,10 +465,7 @@ function montar(t, p = 0) {
   $("#apagar").onclick = () => {
     const b = $("#apagar");
     if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = "Clique de novo para confirmar"; return; }
-    parar();
-    try { localStorage.removeItem("estudo:" + estudo.id); localStorage.removeItem("pos:" + estudo.id); } catch {}
-    guardar("estudos", indice().filter((e) => e.id !== estudo.id));
-    estudo = null; $("#coluna").innerHTML = '<div class="vazio"><h2>Material apagado</h2></div>'; carregarLista();
+    parar(); apagarMaterial(estudo.id); mostrarBiblioteca();
   };
   ir(Math.min(p, fila.length - 1));
   $(".conteudo").scrollTop = 0;
@@ -365,7 +476,10 @@ function ir(i) {
   document.querySelectorAll(".frase").forEach((f) => { const n = +f.dataset.i; f.classList.toggle("atual", n === pos); f.classList.toggle("lida", n < pos); });
   fila.forEach((it, n) => { if (it.tipo === "resposta" && n <= pos) document.querySelector(`[data-i="${n}"]`)?.closest(".r")?.classList.remove("oculta"); });
   document.querySelector(".frase.atual")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  if (estudo) guardar("pos:" + estudo.id, { topico, pos });
+  if (!estudo) return;
+  const pct = (topico + (fila.length ? pos / fila.length : 0)) / estudo.topicos.length;
+  $("#linhaProgresso").style.width = Math.round(pct * 100) + "%";
+  guardar("pos:" + estudo.id, { topico, pos, pct });
 }
 
 function preparar(i) {
@@ -430,8 +544,6 @@ $("#tocar").onclick = () => (tocando ? parar() : tocar());
 const pular = (f) => () => { const t = tocando; parar(); f(); if (t) tocar(); };
 $("#fraseAnt").onclick = pular(() => ir(pos - 1));
 $("#fraseProx").onclick = pular(() => ir(pos + 1));
-$("#topAnt").onclick = pular(() => estudo && montar(topico - 1));
-$("#topProx").onclick = pular(() => estudo && montar(topico + 1));
 document.onkeydown = (e) => {
   if (["SELECT", "INPUT"].includes(e.target.tagName)) return;
   if (modo === "cartoes") { // espaço vira; 1/← não sabia; 2/→ sabia
@@ -561,8 +673,7 @@ async function gerarCartoes() {
   } catch (err) { st.className = "estado erro"; st.textContent = "Flash cards: " + err.message; }
   if (estudo?.id === e.id && modo === "cartoes") novaRodada();
 }
-for (const id of ["voz", "vel", "pensar"]) {
-  const v = lembrar(id, null); if (v !== null) $("#" + id).value = v;
-  $("#" + id).onchange = () => { guardar(id, $("#" + id).value); limparPre(); };
-}
-carregarLista();
+{ const v = lembrar("pensar", null); if (v !== null) $("#pensar").value = v; }
+$("#pensar").onchange = () => guardar("pensar", $("#pensar").value);
+mostrarVoz();
+mostrarBiblioteca();
