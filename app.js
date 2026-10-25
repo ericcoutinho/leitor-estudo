@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025041429";
+import { paraFala } from "./texto.js?v=20261025041559";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -430,7 +430,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025041429", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025041559", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -619,7 +619,7 @@ function irTopico(t) {
 // Resolve assim que o tópico novo está na tela (a dobra continua por cima por ~0,8 s).
 function virarFolha(direcao, trocar) {
   const velha = document.querySelector(".folha, .guia-corpo");
-  if (!velha || matchMedia("(prefers-reduced-motion: reduce)").matches) { trocar(); return Promise.resolve(); }
+  if (!velha || !lembrar("animarFolha", true) || matchMedia("(prefers-reduced-motion: reduce)").matches) { trocar(); return Promise.resolve(); }
   // Folha "dobrando" como papel: uma cópia da folha fica por cima e é recortada por uma linha de dobra inclinada
   // (o canto de baixo puxa na frente, como a mão), com o verso do papel e a sombra na página de baixo.
   const r = velha.getBoundingClientRect();
@@ -1778,9 +1778,11 @@ const passoLetra = (d) => { const i = ESCALAS.indexOf(lembrar("escalaTexto", 1))
 $("#letraMenos").onclick = () => passoLetra(-1);
 $("#letraMais").onclick = () => passoLetra(1);
 aplicarTema(); aplicarLetra();
+$("#animarFolha").checked = lembrar("animarFolha", true);
+$("#animarFolha").onchange = () => guardar("animarFolha", $("#animarFolha").checked);
 
 // ---------- backup: exportar e importar a biblioteca (um arquivo .json) ----------
-const PREFS_BACKUP = ["voz", "vel", "pensar", "prefPerguntas", "prefResumo", "usarIa", "lerCartao", "pomo", "tema", "escalaTexto", "ultimo", "plano", "objetivo"];
+const PREFS_BACKUP = ["voz", "vel", "pensar", "prefPerguntas", "prefResumo", "usarIa", "lerCartao", "pomo", "tema", "escalaTexto", "ultimo", "plano", "objetivo", "animarFolha", "volume", "mudo"];
 $("#exportar").onclick = () => {
   const dados = {};
   for (const k of espelho.keys()) dados[k] = espelho.get(k);
@@ -1804,7 +1806,7 @@ $("#importar").onchange = async (ev) => {
     }
     // junta as listas: o que veio do backup substitui o material de mesmo id; o resto continua
     guardar("estudos", [...vindos, ...atuais.filter((e) => !vindos.some((x) => x.id === e.id))]);
-    fecharModais(); aplicarTema(); aplicarLetra(); mostrarVoz(); mostrarBiblioteca();
+    fecharModais(); aplicarTema(); aplicarLetra(); aplicarVolume(); $("#animarFolha").checked = lembrar("animarFolha", true); mostrarVoz(); mostrarBiblioteca();
     toast(`Backup importado: ${vindos.length} materiais.`, [], 5000);
   } catch (err) { toast("Não deu para importar: " + err.message, [], 7000); }
 };
