@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025034038";
+import { paraFala } from "./texto.js?v=20261025035610";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -366,7 +366,7 @@ const ICONE_TIPO = {
 function mostrarBiblioteca() {
   parar(); estudo = null; modo = "ler"; preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   $("#tituloTopo").textContent = "Biblioteca";
-  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "guia-passo");
   $("#navBiblioteca").classList.add("ativo"); $("#linhaProgresso").style.width = "0";
   const lista = indice();
   const soltar = `<label class="soltar" id="soltarBiblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
@@ -407,7 +407,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025034038", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025035610", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -477,7 +477,7 @@ function abrir(id) {
   if (!estudo) return;
   preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   try { localStorage.setItem("ultimo", JSON.stringify(id)); } catch {}
-  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "na-biblioteca");
+  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "na-biblioteca", "guia-passo");
   $("#navBiblioteca").classList.remove("ativo"); $("#tituloMaterial").textContent = estudo.titulo;
   const salvo = lembrar("pos:" + id, { topico: 0, pos: 0 });
   montar(salvo.topico, salvo.pos);
@@ -529,6 +529,11 @@ async function organizarDepois() {
 
 function montar(t, p = 0) {
   if (modo === "cartoes" && estudo.topicos.length) return montarCartoes(); // material atualizado durante os cartões
+  if (modo === "guiado" && estudo.topicos.length) {
+    if (t !== topico) guia = { etapa: 0, itens: itensRecordar(estudo.topicos[Math.max(0, Math.min(t, estudo.topicos.length - 1))], t) };
+    if (guia.etapa !== 2) { topico = Math.max(0, Math.min(t, estudo.topicos.length - 1)); return montarGuiado(); }
+  }
+  const guiado = modo === "guiado";
   fila = []; limparPre();
   if (!estudo.topicos.length) { // nenhuma parte organizada ainda
     $("#coluna").innerHTML = faixaIa() + '<div class="vazio"><h2>Ainda não há tópicos prontos</h2></div>';
@@ -543,12 +548,13 @@ function montar(t, p = 0) {
     <button class="icone" id="topAnt" title="Tópico anterior" aria-label="Tópico anterior" ${topico ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
     <button class="btn-sumario" id="abrirSumario" title="Ver todos os tópicos"><span class="n">${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
     <button class="icone" id="topProx" title="Próximo tópico" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
+  if (guiado) html += stepper() + `<div class="faixa-guia">Leia (ou ouça) procurando a resposta da pergunta-guia. No fim, vem a hora de recordar. <button class="link" id="irRecordar">Já li, ir para Recordar →</button></div>`;
   html += `<div class="folha entra"><h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
-  if (tp.resumo && lembrar("prefResumo", true)) {
+  if (tp.resumo && lembrar("prefResumo", true) && !guiado) {
     fila.push({ texto: "Resumindo.", tipo: "aviso" });
     html += `<div class="cartao"><h3>Resumo</h3><div class="texto">${frases(tp.resumo).map((f) => span(f)).join("")}</div></div>`;
   }
-  if (tp.perguntas?.length && lembrar("prefPerguntas", true)) {
+  if (tp.perguntas?.length && lembrar("prefPerguntas", true) && !guiado) {
     fila.push({ texto: "Hora de revisar.", tipo: "aviso" });
     html += `<div class="cartao"><h3>Perguntas de revisão</h3>${tp.perguntas.map((q, k) => {
       const pq = span(q.pergunta, "pergunta");
@@ -559,6 +565,7 @@ function montar(t, p = 0) {
   }
   html += `</div><button class="apagar" id="apagar">Apagar este material</button>`;
   $("#coluna").innerHTML = html;
+  $("#irRecordar") && ($("#irRecordar").onclick = () => irEtapa(3));
   ligarObjetivo();
   $("#barraMarca").hidden = true;
   pintarMarcas();
@@ -830,6 +837,7 @@ async function tocar() {
   while (ativa()) {
     const it = fila[pos];
     if (!it) {
+      if (modo === "guiado") { marcarLido(estudo, topico); return irEtapa(3); }
       if (topico < estudo.topicos.length - 1) { montar(topico + 1); continue; }
       return parar();
     }
@@ -888,6 +896,7 @@ $("#fraseAnt").onclick = pular(() => ir(pos - 1));
 $("#fraseProx").onclick = pular(() => ir(pos + 1));
 document.onkeydown = (e) => {
   if (["SELECT", "INPUT"].includes(e.target.tagName)) return;
+  if (modo === "guiado" && guia.etapa !== 2) return;
   if (modo === "cartoes") { // espaço vira; 1/← não sabia; 2/→ sabia
     if (e.code === "Space") { e.preventDefault(); $("#virar")?.click(); }
     if (["Digit1", "ArrowLeft"].includes(e.code)) $("#naoSabia")?.click();
@@ -914,14 +923,16 @@ const caixas = () => lembrar("caixas:" + estudo.id, {});
 function abas() {
   const n = baralho(estudo).length;
   return `<div class="abas" role="tablist"><button class="aba ${modo === "ler" ? "ativo" : ""}" data-modo="ler" role="tab">Ler</button>` +
+    `<button class="aba ${modo === "guiado" ? "ativo" : ""}" data-modo="guiado" role="tab">Estudo guiado</button>` +
     `<button class="aba ${modo === "cartoes" ? "ativo" : ""}" data-modo="cartoes" role="tab">Flash cards${n ? ` (${n})` : ""}</button></div>`;
 }
 function ligarAbas() {
   document.querySelectorAll(".aba").forEach((b) => (b.onclick = () => {
     if (b.dataset.modo === modo) return;
-    parar(); modo = b.dataset.modo;
+    parar(); calarGuia(); modo = b.dataset.modo;
     document.body.classList.toggle("modo-cartoes", modo === "cartoes");
-    modo === "cartoes" ? novaRodada() : montar(topico, pos);
+    document.body.classList.remove("guia-passo");
+    modo === "cartoes" ? novaRodada() : modo === "guiado" ? iniciarGuiado() : montar(topico, pos);
   }));
 }
 
@@ -1323,6 +1334,118 @@ function revisoesFeitas() {
   const hoje = hojeISO(); pl.feitos ||= {};
   Object.entries(estudo.lidosEm || {}).forEach(([i, d]) => ESPACOS.forEach((n) => { if (somaDias(d, n) <= hoje) pl.feitos[`${estudo.id}|${i}|${n}`] = true; }));
   guardar("plano", pl);
+}
+
+
+// ---------- estudo guiado (SQ3R + recordar sem olhar) ----------
+// Por tópico: 1) visão geral (título + resumo), 2) pergunta-guia, 3) leitura (sem o resumo e as perguntas, que ficam
+// para depois), 4) recordar de cabeça (Lembrei / Não lembrei, resposta escrita opcional), 5) conferir: o que não lembrou
+// volta para o início dos flash cards. Tentar lembrar antes de ver é o que mais fixa (efeito de testagem).
+const PASSOS_GUIA = ["Visão geral", "Pergunta", "Leitura", "Recordar", "Conferir"];
+let guia = { etapa: 0, itens: [] };
+let falaGuia = 0;
+function falarGuia(texto) {
+  const minha = ++falaGuia;
+  audio.pause();
+  carregando(true);
+  sintetizar(texto).then((url) => { if (minha === falaGuia && modo === "guiado") { audio.src = url; audio.play().catch(() => {}); } })
+    .catch(() => {}).finally(() => carregando(false));
+}
+const calarGuia = () => { falaGuia++; audio.pause(); carregando(false); };
+function perguntaGuia(tp) {
+  if (tp.perguntas?.[0]) return tp.perguntas[0].pergunta;
+  if (tp.cartoes?.[0]) return /\?$/.test(tp.cartoes[0].frente) ? tp.cartoes[0].frente : `O que é “${tp.cartoes[0].frente}”?`;
+  return `Qual é a ideia mais importante sobre “${tp.titulo}”?`;
+}
+// o que recordar: perguntas de revisão e os flash cards do tópico (até 5)
+const itensRecordar = (tp, t) => [
+  ...(tp.perguntas || []).map((q) => ({ p: q.pergunta, r: q.resposta, chave: t + "|" + q.pergunta })),
+  ...(tp.cartoes || []).map((c) => ({ p: /\?$/.test(c.frente) ? c.frente : `O que é “${c.frente}”?`, r: c.verso, chave: t + "|" + c.frente })),
+].filter((x) => x.p && x.r).slice(0, 5);
+function stepper() {
+  return `<ol class="passos-guia" aria-label="Etapas do estudo guiado">${PASSOS_GUIA.map((p, i) =>
+    `<li class="${i < guia.etapa ? "feito" : i === guia.etapa ? "agora" : ""}" ${i === guia.etapa ? 'aria-current="step"' : ""}><span>${i < guia.etapa ? "✓" : i + 1}</span><b>${p}</b></li>`).join("")}</ol>`;
+}
+function iniciarGuiado(t = topico) {
+  calarGuia(); parar();
+  modo = "guiado"; topico = Math.max(0, Math.min(t, estudo.topicos.length - 1));
+  guia = { etapa: 0, itens: itensRecordar(estudo.topicos[topico], topico) };
+  pomoAoEstudar();
+  montarGuiado();
+}
+function irEtapa(n) {
+  calarGuia(); parar();
+  guia.etapa = n;
+  if (n === 2) { document.body.classList.remove("guia-passo"); montar(topico, 0); tocar(); }
+  else montarGuiado();
+}
+function montarGuiado() {
+  const tp = estudo.topicos[topico], n = estudo.topicos.length;
+  document.body.classList.add("guia-passo"); document.body.classList.remove("modo-cartoes");
+  const cab = `<div class="guia-cab"><button class="icone" id="guiaAnt" aria-label="Tópico anterior" ${topico ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
+    <div><small>Tópico ${topico + 1} de ${n}</small><h2>${esc(tp.titulo)}</h2></div>
+    <button class="icone" id="guiaProx" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
+  let corpo = "", falar = "";
+  if (guia.etapa === 0) {
+    const visao = tp.resumo || frases(tp.texto).slice(0, 2).join(" ");
+    falar = `${tp.titulo}. ${visao}`;
+    corpo = `<div class="guia-cartao"><span class="guia-rot">Antes de ler, uma visão geral</span><p class="texto">${esc(visao)}</p>
+      <div class="guia-acoes"><button class="sec" id="guiaOuvir">▶ Ouvir de novo</button><button class="pri" id="guiaSeguir">Continuar →</button></div></div>`;
+  } else if (guia.etapa === 1) {
+    const q = perguntaGuia(tp);
+    falar = `Ao ler, tente descobrir: ${q}`;
+    corpo = `<div class="guia-cartao destaque-q"><span class="guia-rot">Ao ler, tente descobrir</span><p class="pergunta-guia">${esc(q)}</p>
+      <small class="ajuda">Ler procurando uma resposta prende mais a atenção.</small>
+      <div class="guia-acoes"><button class="sec" id="guiaOuvir">▶ Ouvir de novo</button><button class="pri" id="guiaSeguir">Começar a leitura →</button></div></div>`;
+  } else if (guia.etapa === 3) {
+    falar = guia.itens.length ? "Agora, sem olhar o texto, tente lembrar." : "";
+    corpo = guia.itens.length ? `<div class="guia-cartao"><span class="guia-rot">Sem olhar o texto: você lembra?</span>
+      ${guia.itens.map((it, k) => `<div class="recordar ${it.lembrou === true ? "sim" : it.lembrou === false ? "nao" : ""}">
+        <b>${k + 1}. ${esc(it.p)}</b>
+        <textarea data-resp="${k}" placeholder="Sua resposta (opcional: escrever ajuda a fixar)">${esc(it.escrita || "")}</textarea>
+        <div class="guia-acoes esq"><button class="nao-l" data-lembrou="${k}|0">Não lembrei</button><button class="sim-l" data-lembrou="${k}|1">Lembrei</button></div></div>`).join("")}
+      <div class="guia-acoes"><button class="pri" id="guiaSeguir">Conferir respostas →</button></div></div>`
+      : `<div class="guia-cartao"><p>Este tópico não tem perguntas nem flash cards para recordar.</p><div class="guia-acoes"><button class="pri" id="guiaSeguir">Continuar →</button></div></div>`;
+  } else {
+    const certos = guia.itens.filter((x) => x.lembrou).length, total = guia.itens.length;
+    const emoji = !total ? "📘" : certos === total ? "🎉" : certos >= total / 2 ? "👍" : "💪";
+    corpo = `<div class="guia-cartao"><div class="placar-guia"><span>${emoji}</span><div><b>${total ? `Você lembrou ${certos} de ${total}` : "Tópico concluído"}</b>
+        <small>${!total ? "" : certos === total ? "Excelente! Este tópico está firme." : "O que você não lembrou foi para o começo dos flash cards."}</small></div></div>
+      ${guia.itens.map((it) => `<div class="conferir ${it.lembrou ? "sim" : "nao"}"><span class="selo-c">${it.lembrou ? "✓" : "✗"}</span><div>
+        <b>${esc(it.p)}</b>${it.escrita ? `<small>Você escreveu: ${esc(it.escrita)}</small>` : ""}<p>${esc(it.r)}</p></div></div>`).join("")}
+      <div class="guia-acoes">${guia.itens.some((x) => !x.lembrou) ? '<button class="sec" id="guiaCartoes">Revisar com flash cards</button>' : ""}
+        <button class="sec" id="guiaReler">Ler de novo</button>
+        ${topico < n - 1 ? '<button class="pri" id="guiaProxTopico">Próximo tópico →</button>' : '<button class="pri" id="guiaFim">Concluir</button>'}</div></div>`;
+  }
+  $("#coluna").innerHTML = faixaIa() + faixaObjetivo() + abas() + stepper() + cab + `<div class="guia-corpo entra">${corpo}</div>`;
+  ligarAbas(); ligarObjetivo();
+  $("#guiaAnt").onclick = () => iniciarGuiado(topico - 1);
+  $("#guiaProx").onclick = () => iniciarGuiado(topico + 1);
+  $("#guiaOuvir") && ($("#guiaOuvir").onclick = () => falarGuia(falar));
+  $("#guiaSeguir") && ($("#guiaSeguir").onclick = () => {
+    if (guia.etapa === 3) guia.itens.forEach((x) => (x.lembrou ??= false)); // sem marcar conta como "não lembrei"
+    irEtapa(guia.etapa === 3 ? 4 : guia.etapa + 1);
+  });
+  document.querySelectorAll("[data-resp]").forEach((t) => (t.oninput = () => (guia.itens[+t.dataset.resp].escrita = t.value.trim())));
+  document.querySelectorAll("[data-lembrou]").forEach((b) => (b.onclick = () => {
+    const [k, v] = b.dataset.lembrou.split("|");
+    guia.itens[+k].lembrou = v === "1";
+    const caixa = b.closest(".recordar");
+    caixa.classList.toggle("sim", v === "1"); caixa.classList.toggle("nao", v === "0");
+  }));
+  if (guia.etapa === 4) {
+    // conferido: o que não lembrou volta para a caixa 0 dos flash cards (vem primeiro); o tópico conta como lido no plano
+    const cx = caixas();
+    guia.itens.forEach((x) => { cx[x.chave] = x.lembrou ? Math.max(1, cx[x.chave] || 0) : 0; }); // lembrou sobe; não lembrou vem primeiro
+    guardar("caixas:" + estudo.id, cx);
+    marcarLido(estudo, topico);
+    $("#guiaCartoes") && ($("#guiaCartoes").onclick = () => { document.body.classList.remove("guia-passo"); modo = "cartoes"; document.body.classList.add("modo-cartoes"); filtroTopico = String(topico); novaRodada(); });
+    $("#guiaReler").onclick = () => irEtapa(2);
+    $("#guiaProxTopico") && ($("#guiaProxTopico").onclick = () => iniciarGuiado(topico + 1));
+    $("#guiaFim") && ($("#guiaFim").onclick = () => { toast("Material concluído no estudo guiado! 🎉 As revisões seguem no seu plano.", [], 5000); document.body.classList.remove("guia-passo"); modo = "ler"; montar(topico, 0); });
+  }
+  if (falar) falarGuia(falar);
+  $(".conteudo").scrollTop = 0;
 }
 
 mostrarVoz();
