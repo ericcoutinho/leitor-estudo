@@ -369,23 +369,12 @@ body.modo-cartoes .player { visibility: hidden; }
 @media (max-width: 1100px) { .volume input { width: 64px; } }
 @media (max-width: 820px) { .volume input { display: none; } }
 
-/* ---------- virar a folha ao trocar de tópico (View Transitions) ---------- */
-.folha, .guia-corpo { view-transition-name: folha; }
-/* o resto da tela troca na hora; só a folha anima */
-::view-transition-old(root), ::view-transition-new(root) { animation: none; }
-::view-transition-group(folha) { animation-duration: .65s; }
-::view-transition-image-pair(folha) { perspective: 2800px; }
+/* ---------- virar a folha ao trocar de tópico (dobra de papel) ---------- */
+:root { --verso-claro: #ffffff; --verso-escuro: #dfe3ea; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --verso-claro: #2a2e35; --verso-escuro: #16181c; } }
+:root[data-theme="dark"] { --verso-claro: #2a2e35; --verso-escuro: #16181c; }
+.virando > * { will-change: clip-path; }
 html[data-virar] .folha.entra, html[data-virar] .guia-corpo.entra { animation: none; }
-/* para frente: a folha atual gira pela lombada (esquerda) e revela a próxima por baixo */
-html[data-virar="frente"]::view-transition-old(folha) { z-index: 2; transform-origin: left center; animation: folhaVai .65s cubic-bezier(.45,.05,.35,1) both; }
-html[data-virar="frente"]::view-transition-new(folha) { animation: folhaRevela .65s ease both; }
-/* para trás: a folha anterior volta girando por cima da atual */
-html[data-virar="tras"]::view-transition-new(folha) { z-index: 2; transform-origin: left center; animation: folhaVolta .65s cubic-bezier(.45,.05,.35,1) both; }
-html[data-virar="tras"]::view-transition-old(folha) { animation: folhaEscurece .65s ease both; }
-@keyframes folhaVai { 0% { transform: rotateY(0); filter: brightness(1); } 100% { transform: rotateY(-92deg); filter: brightness(.7); opacity: .9; } }
-@keyframes folhaVolta { 0% { transform: rotateY(-92deg); filter: brightness(.7); } 100% { transform: rotateY(0); filter: brightness(1); } }
-@keyframes folhaRevela { 0% { filter: brightness(.82); transform: scale(.985); } 100% { filter: brightness(1); transform: none; } }
-@keyframes folhaEscurece { 0% { filter: brightness(1); } 100% { filter: brightness(.82); transform: scale(.985); } }
 
 /* ---------- estudo guiado ---------- */
 body.guia-passo .player { visibility: hidden; }
@@ -897,6 +886,6 @@ body.guia-passo .player { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261025040647"></script>
+<script type="module" src="app.js?v=20261025041308"></script>
 </body>
 </html>

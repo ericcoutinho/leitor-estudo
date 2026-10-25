@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025040647";
+import { paraFala } from "./texto.js?v=20261025041308";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -430,7 +430,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025040647", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025041308", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -615,16 +615,53 @@ function irTopico(t) {
   const tocava = tocando; parar(); fecharSumario();
   virarFolha(t > topico ? "frente" : "tras", () => montar(t)).then(() => { if (tocava) tocar(); });
 }
-// troca de tópico com a folha virando pela lombada, como num livro (View Transitions API do próprio navegador).
-// Sem suporte (Firefox antigo) ou com "reduzir movimento" no sistema, troca direto. Resolve quando o tópico novo já está na tela.
+// troca de tópico com a folha dobrando como papel. Com "reduzir movimento" no sistema, troca direto.
+// Resolve assim que o tópico novo está na tela (a dobra continua por cima por ~0,8 s).
 function virarFolha(direcao, trocar) {
-  if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches || !document.querySelector(".folha, .guia-corpo")) {
-    trocar(); return Promise.resolve();
-  }
+  const velha = document.querySelector(".folha, .guia-corpo");
+  if (!velha || matchMedia("(prefers-reduced-motion: reduce)").matches) { trocar(); return Promise.resolve(); }
+  // Folha "dobrando" como papel: uma cópia da folha fica por cima e é recortada por uma linha de dobra inclinada
+  // (o canto de baixo puxa na frente, como a mão), com o verso do papel e a sombra na página de baixo.
+  const r = velha.getBoundingClientRect();
+  const W = r.width;
+  const fixo = (el, z) => Object.assign(el.style, { position: "fixed", left: r.left + "px", top: r.top + "px", width: W + "px", height: r.height + "px",
+    margin: 0, zIndex: z, pointerEvents: "none", overflow: "hidden" });
+  const copia = (el) => { const c = el.cloneNode(true); c.removeAttribute("id"); c.classList.remove("entra"); c.querySelectorAll("[id]").forEach((x) => x.removeAttribute("id")); return c; };
+  const camada = document.createElement("div"); camada.className = "virando";
+  document.body.append(camada);
   document.documentElement.dataset.virar = direcao;
-  const t = document.startViewTransition(trocar);
-  t.finished.finally(() => delete document.documentElement.dataset.virar);
-  return t.updateCallbackDone.catch(() => {});
+  let folha, base = null;
+  // a folha nova não faz a animação de entrada (senão ela "pisca" depois da dobra)
+  const semEntrada = () => document.querySelectorAll("#coluna .folha.entra, #coluna .guia-corpo.entra").forEach((x) => x.classList.remove("entra"));
+  if (direcao === "frente") { folha = copia(velha); fixo(folha, 41); camada.append(folha); trocar(); semEntrada(); }
+  else { base = copia(velha); fixo(base, 40); camada.append(base); trocar(); semEntrada(); const nova = document.querySelector(".folha, .guia-corpo"); folha = copia(nova || velha); fixo(folha, 41); camada.append(folha); }
+  // verso do papel (com sombra própria) e sombra projetada na página de baixo
+  const sombraVerso = document.createElement("div"); fixo(sombraVerso, 42); sombraVerso.style.overflow = "visible"; sombraVerso.style.filter = "drop-shadow(-6px 2px 10px rgba(0,0,0,.28))";
+  const verso = document.createElement("div"); verso.className = "verso-folha"; Object.assign(verso.style, { position: "absolute", inset: 0 });
+  sombraVerso.append(verso);
+  const sombra = document.createElement("div"); fixo(sombra, direcao === "frente" ? 39 : 40.5);
+  camada.append(sombraVerso, sombra);
+  const DUR = 820, t0 = performance.now();
+  const curva = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2); // começa devagar, passa rápido, assenta
+  return new Promise((pronto) => {
+    pronto(); // o tópico novo já está na tela (a voz pode seguir); a dobra continua por cima
+    const quadro = (agora) => {
+      const t = Math.min(1, (agora - t0) / DUR);
+      const p = direcao === "frente" ? curva(t) : 1 - curva(t); // para trás: a folha volta deitando
+      const xf = W * (1 - p);                                    // posição da dobra
+      const d = Math.min(W * 0.11, 100) * Math.sin(Math.PI * Math.min(1, p * 1.05)); // inclinação: o canto de baixo vai na frente
+      const xt = Math.max(0, xf + d), xb = Math.max(0, xf - d);
+      folha.style.clipPath = `polygon(0 0, ${xt}px 0, ${xb}px ${r.height}px, 0 ${r.height}px)`;
+      // verso: a parte levantada aparece espelhada à esquerda da dobra, encurtada pela perspectiva
+      const larguraT = (W - xt) * 0.55 * (1 - p * 0.35), larguraB = (W - xb) * 0.55 * (1 - p * 0.35);
+      verso.style.clipPath = `polygon(${xt}px 0, ${Math.max(0, xt - larguraT)}px 0, ${Math.max(0, xb - larguraB)}px ${r.height}px, ${xb}px ${r.height}px)`;
+      verso.style.background = `linear-gradient(${90 + Math.atan2(xt - xb, r.height) * 57.3}deg, var(--verso-escuro) ${Math.max(0, xb - larguraB) / W * 100}%, var(--verso-claro) ${xb / W * 100}%)`;
+      sombra.style.background = `linear-gradient(90deg, transparent ${Math.max(0, xf - 4)}px, rgba(0,0,0,${0.22 * Math.sin(Math.PI * p)}) ${xf + 2}px, transparent ${xf + 90}px)`;
+      if (t < 1) requestAnimationFrame(quadro);
+      else { camada.remove(); delete document.documentElement.dataset.virar; }
+    };
+    requestAnimationFrame(quadro);
+  });
 }
 function listarTopicos() {
   const busca = $("#buscaTopico").value.trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
