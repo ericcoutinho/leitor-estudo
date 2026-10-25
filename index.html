@@ -243,6 +243,10 @@ body.modo-cartoes .player { visibility: hidden; }
 .interruptor input:checked + .trilho { background: var(--destaque); }
 .interruptor input:checked + .trilho::after { transform: translateX(18px); }
 .interruptor input:focus-visible + .trilho { outline: 3px solid var(--destaque-fundo); outline-offset: 2px; }
+.pop .interruptor.compacto { display: flex; border: 0; padding: 8px; border-radius: 10px; color: var(--texto); font-size: 14px; }
+.pop .interruptor.compacto:hover { background: var(--fundo); }
+.pop .interruptor.compacto small { font-size: 12px; }
+#linhaPensar[hidden] { display: none; }
 .pop { position: fixed; z-index: 40; background: var(--painel); border: 1px solid var(--borda); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.18); padding: 8px; min-width: 240px; }
 .pop[hidden] { display: none; }
 .pop h3 { margin: 6px 8px 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--suave); }
@@ -384,9 +388,13 @@ body.modo-cartoes .player { visibility: hidden; }
 <!-- menus do player -->
 <div class="pop" id="popVoz" hidden role="menu"><h3>Voz</h3><div id="listaVozes"></div></div>
 <div class="pop" id="popVel" hidden role="menu"><h3>Velocidade</h3><div id="listaVel"></div></div>
-<div class="pop" id="popMais" hidden role="menu">
-  <h3>Leitura</h3>
-  <label>Pausa para pensar nas perguntas
+<div class="pop" id="popMais" hidden role="menu" style="width:300px">
+  <h3>Preferências de estudo</h3>
+  <label class="interruptor compacto"><span class="txt"><b>Perguntas de revisão</b><small>No fim de cada tópico</small></span>
+    <input type="checkbox" id="prefPerguntas" checked><span class="trilho"></span></label>
+  <label class="interruptor compacto"><span class="txt"><b>Resumo do tópico</b><small>Lido antes das perguntas</small></span>
+    <input type="checkbox" id="prefResumo" checked><span class="trilho"></span></label>
+  <label id="linhaPensar">Pausa para pensar nas perguntas
     <select id="pensar"><option value="0">não pausar</option><option value="5" selected>5 segundos</option><option value="10">10 segundos</option><option value="-1">até eu tocar</option></select>
   </label>
 </div>

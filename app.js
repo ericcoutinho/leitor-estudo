@@ -446,11 +446,11 @@ function montar(t, p = 0) {
     <button class="btn-sumario" id="abrirSumario" title="Ver todos os tópicos"><span class="n">${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
     <button class="icone" id="topProx" title="Próximo tópico" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
   html += `<div class="folha"><h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
-  if (tp.resumo) {
+  if (tp.resumo && lembrar("prefResumo", true)) {
     fila.push({ texto: "Resumindo.", tipo: "aviso" });
     html += `<div class="cartao"><h3>Resumo</h3><div class="texto">${frases(tp.resumo).map((f) => span(f)).join("")}</div></div>`;
   }
-  if (tp.perguntas?.length) {
+  if (tp.perguntas?.length && lembrar("prefPerguntas", true)) {
     fila.push({ texto: "Hora de revisar.", tipo: "aviso" });
     html += `<div class="cartao"><h3>Perguntas de revisão</h3>${tp.perguntas.map((q, k) => {
       const pq = span(q.pergunta, "pergunta");
@@ -714,5 +714,15 @@ async function gerarCartoes() {
 }
 { const v = lembrar("pensar", null); if (v !== null) $("#pensar").value = v; }
 $("#pensar").onchange = () => guardar("pensar", $("#pensar").value);
+// preferências de estudo: com ou sem perguntas de revisão e resumo (somem da tela e da leitura)
+for (const id of ["prefPerguntas", "prefResumo"]) {
+  $("#" + id).checked = lembrar(id, true);
+  $("#" + id).onchange = () => {
+    guardar(id, $("#" + id).checked);
+    $("#linhaPensar").hidden = !$("#prefPerguntas").checked;
+    if (estudo && modo === "ler") { const t = tocando; parar(); montar(topico, 0); if (t) tocar(); }
+  };
+}
+$("#linhaPensar").hidden = !$("#prefPerguntas").checked;
 mostrarVoz();
 mostrarBiblioteca();
