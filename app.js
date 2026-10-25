@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025025521";
+import { paraFala } from "./texto.js?v=20261025030414";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -362,7 +362,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025025521", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025030414", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -641,13 +641,28 @@ async function responderMarca(m, pergunta) {
     const a = $(".abas"); if (a && m.acao === "cartao") { a.outerHTML = abas(); ligarAbas(); } // atualiza "Flash cards (N)"
   }
 }
-// ouvir a explicação da IA com a mesma voz da leitura
-function ouvirTexto(texto) {
+// ouvir a explicação da IA com a mesma voz da leitura. Enquanto toca, o botão vira "Pausar" e o play principal
+// mostra ⏸ e pausa ela (antes o play principal começava a leitura e não havia como parar a explicação).
+let ouvindo = null; // id da dúvida tocando
+function ouvirTexto(texto, id) {
   parar();
   const minha = ++falaCartao;
+  ouvindo = id; marcarOuvindo();
   carregando(true);
-  sintetizar(texto).then((url) => { if (minha === falaCartao) { audio.src = url; audio.play().catch(() => {}); } })
-    .catch(() => {}).finally(() => carregando(false));
+  sintetizar(texto).then((url) => {
+    if (minha !== falaCartao || ouvindo !== id) return;
+    audio.src = url;
+    audio.onended = audio.onpause = () => { if (ouvindo === id) { ouvindo = null; marcarOuvindo(); } };
+    audio.play().catch(() => {});
+  }).catch(() => {}).finally(() => carregando(false));
+}
+function pararOuvir() {
+  if (!ouvindo) return;
+  ouvindo = null; falaCartao++; audio.onpause = null; audio.pause(); carregando(false); marcarOuvindo();
+}
+function marcarOuvindo() {
+  document.querySelectorAll("[data-ouvir]").forEach((b) => (b.textContent = b.dataset.ouvir === ouvindo ? "⏸ Pausar" : "▶ Ouvir"));
+  $("#tocar").innerHTML = ouvindo || tocando ? PAUSA : PLAY;
 }
 
 // marca as frases do tópico aberto que fazem parte de algum trecho marcado
@@ -689,7 +704,8 @@ function listarDuvidas(novo) {
   }).join("") : `<div class="vazio-duvidas">Não entendeu alguma parte? <b>Selecione o trecho no texto</b> e escolha “Explicar melhor”, “Dar exemplo”, “Mais simples”, “Virar flash card” ou “Comentar”. Tudo fica guardado aqui para revisar antes da prova.</div>`;
   const acha = (id) => estudo.marcas.find((m) => m.id === id);
   document.querySelectorAll("[data-coment]").forEach((t) => (t.oninput = () => { acha(t.dataset.coment).comentario = t.value; salvarEstudo(estudo); }));
-  document.querySelectorAll("[data-ouvir]").forEach((b) => (b.onclick = () => ouvirTexto(acha(b.dataset.ouvir).resposta)));
+  document.querySelectorAll("[data-ouvir]").forEach((b) => (b.onclick = () => (ouvindo === b.dataset.ouvir ? pararOuvir() : ouvirTexto(acha(b.dataset.ouvir).resposta, b.dataset.ouvir))));
+  marcarOuvindo();
   document.querySelectorAll("[data-refazer]").forEach((b) => (b.onclick = () => responderMarca(acha(b.dataset.refazer))));
   document.querySelectorAll("[data-tirar]").forEach((b) => (b.onclick = () => {
     estudo.marcas = estudo.marcas.filter((m) => m.id !== b.dataset.tirar); salvarEstudo(estudo); pintarMarcas(); listarDuvidas();
@@ -730,7 +746,7 @@ function abrirDuvidas(novo) {
   listarDuvidas(novo);
   $("#duvidas").hidden = $("#fundoDuvidas").hidden = false;
 }
-function fecharDuvidas() { $("#duvidas").hidden = $("#fundoDuvidas").hidden = true; }
+function fecharDuvidas() { pararOuvir(); $("#duvidas").hidden = $("#fundoDuvidas").hidden = true; }
 $("#btnDuvidas").onclick = () => abrirDuvidas();
 $("#fecharDuvidas").onclick = fecharDuvidas;
 $("#fundoDuvidas").onclick = fecharDuvidas;
@@ -810,12 +826,13 @@ function carregando(sim) {
   b.title = sim ? "Gerando a voz…" : "Tocar / pausar (espaço)";
 }
 function parar() {
+  if (ouvindo) { ouvindo = null; marcarOuvindo(); }
   carregando(false);
   tocando = false; $("#tocar").innerHTML = PLAY; audio.onpause = null; audio.pause();
   if (espera) { espera(false); espera = null; }
 }
 
-$("#tocar").onclick = () => (tocando ? parar() : tocar());
+$("#tocar").onclick = () => (ouvindo ? pararOuvir() : tocando ? parar() : tocar());
 const pular = (f) => () => { const t = tocando; parar(); f(); if (t) tocar(); };
 $("#fraseAnt").onclick = pular(() => ir(pos - 1));
 $("#fraseProx").onclick = pular(() => ir(pos + 1));
@@ -987,6 +1004,23 @@ for (const id of ["prefPerguntas", "prefResumo"]) {
 $("#linhaPensar").hidden = !$("#prefPerguntas").checked;
 mostrarVoz();
 mostrarBiblioteca();
+if (lembrar("voz", null) === null) boasVindas();
+function boasVindas() {
+  let escolha = vozAtual;
+  const desenhar = () => {
+    $("#opcoesVoz").innerHTML = VOZES.map(([id, nome, g]) => `<div class="voz-card ${id === escolha ? "ativo" : ""}" data-escolher="${id}" role="radio" aria-checked="${id === escolha}" tabindex="0">
+        <span class="avatar grande ${id}">${nome[0]}</span><b>${nome}</b><small>${g}</small>
+        <button class="ouvir" data-amostra="${id}" aria-label="Ouvir ${nome}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button></div>`).join("");
+    document.querySelectorAll("[data-escolher]").forEach((c) => {
+      c.onclick = () => { escolha = c.dataset.escolher; amostra.src = `amostras/${escolha}.mp3`; amostra.play().catch(() => {}); desenhar(); };
+      c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); c.click(); } };
+    });
+    document.querySelectorAll("[data-amostra]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); amostra.src = `amostras/${b.dataset.amostra}.mp3`; amostra.play().catch(() => {}); }));
+  };
+  desenhar();
+  $("#modalVoz").hidden = false;
+  $("#salvarVoz").onclick = () => { amostra.pause(); vozAtual = escolha; guardar("voz", vozAtual); mostrarVoz(); $("#modalVoz").hidden = true; };
+}
 
 // ---------- pomodoro ----------
 // Foco/pausa com relógio flutuante (pode ocultar). O fim é calculado pela hora marcada (não por contagem), então
@@ -1013,6 +1047,14 @@ function desenharPomo() {
   $("#relogio").classList.toggle("pausa", pausa);
   $("#relogio").classList.toggle("parado", !pomo.rodando);
   $("#relogio").hidden = !(pomo.mostrar && ativo);
+  // minimizado: bolinha com o tempo no mesmo canto (antes sumia e a pessoa não achava mais)
+  $("#relogioMini").hidden = !(!pomo.mostrar && ativo);
+  $("#relogioMini").classList.toggle("pausa", pausa);
+  $("#pomoTempoMini").textContent = mmss(r);
+  $("#pomoFaseMini").textContent = pausa ? "Pausa" : "Foco";
+  const cm = 2 * Math.PI * 15;
+  $("#pomoAnelMini").style.strokeDasharray = cm;
+  $("#pomoAnelMini").style.strokeDashoffset = cm * (1 - Math.max(0, Math.min(1, r / total)));
   $("#pomoPlay").innerHTML = pomo.rodando ? PAUSA : PLAY;
   $("#pomoPlay").title = pomo.rodando ? "Pausar" : "Continuar";
   // no topo: tempo pequeno quando está ativo (é o único sinal quando o relógio está oculto)
@@ -1085,6 +1127,7 @@ $("#pomoZerar").onclick = zerarPomo;
 $("#pomoPlay").onclick = () => (pomo.rodando ? pausarPomo() : iniciarPomo());
 $("#pomoPular").onclick = () => { proximaFase(false); iniciarPomo(); };
 $("#pomoOcultar").onclick = () => { pomo.mostrar = false; $("#pomoMostrar").checked = false; salvarPomo(); desenharPomo(); };
+$("#relogioMini").onclick = () => { pomo.mostrar = true; $("#pomoMostrar").checked = true; salvarPomo(); desenharPomo(); };
 for (const [id, campo] of [["#pomoFoco", "foco"], ["#pomoPausa", "pausa"], ["#pomoLonga", "longa"]]) {
   $(id).value = pomo[campo];
   $(id).onchange = () => {
@@ -1113,7 +1156,14 @@ $("#pomoPararLeitura").onchange = () => { pomo.pararLeitura = $("#pomoPararLeitu
   let ini = null;
   r.querySelector(".arrastar").onpointerdown = (e) => { const b = r.getBoundingClientRect(); ini = { dx: e.clientX - b.left, dy: e.clientY - b.top }; r.setPointerCapture(e.pointerId); };
   r.onpointermove = (e) => { if (ini) colocar(e.clientX - ini.dx, e.clientY - ini.dy); };
-  r.onpointerup = () => { if (!ini) return; ini = null; guardar("pomoPos", { x: parseInt(r.style.left), y: parseInt(r.style.top) }); };
+  const moverMini = () => { // a bolinha fica onde o relógio foi deixado (posição salva; escondido ele não tem tamanho)
+    const p = lembrar("pomoPos", null);
+    if (!p || matchMedia("(max-width: 820px)").matches) return;
+    Object.assign($("#relogioMini").style, { left: p.x + "px", top: Math.min(innerHeight - 52, p.y) + "px", right: "auto", bottom: "auto" });
+  };
+  moverMini();
+  r.onpointerup = () => { if (!ini) return; ini = null; guardar("pomoPos", { x: parseInt(r.style.left), y: parseInt(r.style.top) }); moverMini(); };
+  new MutationObserver(moverMini).observe(r, { attributes: true, attributeFilter: ["hidden"] });
   addEventListener("resize", () => { if (r.style.left) colocar(parseInt(r.style.left), parseInt(r.style.top)); });
 }
 document.addEventListener("click", (e) => { if (!e.target.closest("#popPomo, #btnPomo, #btnPomoNav, #toast")) $("#popPomo").hidden = true; });

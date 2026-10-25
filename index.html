@@ -321,6 +321,15 @@ body.modo-cartoes .player { visibility: hidden; }
 .etiqueta.organizando { background: var(--destaque-fundo); color: var(--destaque-forte); border-color: transparent; display: inline-flex; align-items: center; gap: 6px; }
 .etiqueta.organizando::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: girar .8s linear infinite; }
 
+/* ---------- escolher a voz (primeira visita) ---------- */
+.opcoes-voz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 6px 0; }
+.voz-card { position: relative; display: grid; justify-items: center; gap: 4px; padding: 16px 8px 14px; border: 2px solid var(--borda); border-radius: 16px; cursor: pointer; transition: border-color .15s, transform .15s, background .15s; }
+.voz-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--destaque) 50%, var(--borda)); }
+.voz-card.ativo { border-color: var(--destaque); background: var(--destaque-fundo); }
+.voz-card small { color: var(--suave); font-size: 12px; }
+.voz-card .ouvir { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; }
+.avatar.grande { width: 56px; height: 56px; font-size: 22px; }
+
 /* ---------- pomodoro ---------- */
 .so-celular { display: none !important; }
 @media (max-width: 820px) { .so-celular { display: flex !important; } body:not(.na-biblioteca) #btnPomoNav { display: none !important; } }
@@ -332,7 +341,26 @@ body.modo-cartoes .player { visibility: hidden; }
 .relogio { position: fixed; right: 24px; bottom: 24px; z-index: 35; width: 172px; padding: 14px 14px 10px; border-radius: 22px; background: var(--painel);
   border: 1px solid var(--borda); box-shadow: 0 14px 40px rgba(0,0,0,.18); display: grid; justify-items: center; gap: 6px; touch-action: none; animation: subir .25s ease; }
 .relogio[hidden] { display: none; }
-.relogio .arrastar { width: 36px; height: 4px; border-radius: 4px; background: var(--borda); cursor: grab; margin-bottom: 2px; }
+.barra-relogio { width: 100%; height: 18px; position: relative; display: grid; place-items: center; margin: -6px 0 0; }
+.relogio .arrastar { width: 36px; height: 5px; border-radius: 4px; background: var(--borda); cursor: grab; }
+.relogio .minimizar { position: absolute; right: -4px; top: -4px; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--borda); background: var(--fundo);
+  color: var(--suave); display: grid; place-items: center; padding: 0; }
+.relogio .minimizar:hover { color: var(--texto); border-color: var(--destaque); background: var(--destaque-fundo); }
+.relogio .minimizar svg { width: 14px; height: 14px; }
+/* minimizado: círculo com o tempo no meio e o anel em volta esvaziando até o fim da fase */
+.relogio-mini { position: fixed; right: 24px; bottom: 24px; z-index: 35; width: 78px; height: 78px; padding: 0; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid var(--borda); background: var(--painel); box-shadow: 0 10px 30px rgba(0,0,0,.2); font-variant-numeric: tabular-nums; animation: subir .2s ease;
+  transition: transform .15s, border-color .15s; }
+.relogio-mini[hidden] { display: none; }
+.relogio-mini:hover { border-color: var(--destaque); transform: translateY(-1px); }
+.relogio-mini svg { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); transform: rotate(-90deg); }
+.relogio-mini .trilha { fill: none; stroke: var(--fundo); stroke-width: 3.2; }
+.relogio-mini .cheio { fill: none; stroke: var(--destaque); stroke-width: 3.2; stroke-linecap: round; transition: stroke-dashoffset .9s linear; }
+.relogio-mini .dentro { display: grid; justify-items: center; line-height: 1; gap: 3px; }
+.relogio-mini small { font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--destaque); }
+.relogio-mini.pausa small { color: var(--ok); }
+.relogio-mini.pausa .cheio { stroke: var(--ok); }
+.relogio-mini b { font-size: 17px; font-weight: 700; }
 .relogio .anel { width: 128px; height: 128px; transform: rotate(-90deg); }
 .relogio .trilha { fill: none; stroke: var(--fundo); stroke-width: 9; }
 .relogio .cheio { fill: none; stroke: var(--destaque); stroke-width: 9; stroke-linecap: round; transition: stroke-dashoffset .9s linear, stroke .3s; }
@@ -362,6 +390,10 @@ body.modo-cartoes .player { visibility: hidden; }
   .relogio { left: auto !important; right: 10px !important; top: 116px !important; bottom: auto !important; width: auto; padding: 5px 6px 5px 14px; border-radius: 999px;
     grid-auto-flow: column; align-items: center; gap: 10px; }
   .relogio .anel, .relogio .arrastar, .relogio .ciclos { display: none; }
+  .relogio .barra-relogio { position: static; width: auto; height: auto; margin: 0; order: 9; }
+  .relogio .minimizar { position: static; }
+  .relogio-mini { right: 10px; bottom: auto; top: 116px; width: 66px; height: 66px; }
+  .relogio-mini b { font-size: 13px; }
   .relogio .mostrador { position: static; width: auto; height: auto; display: flex; align-items: baseline; gap: 8px; }
   .relogio b { font-size: 18px; }
   .controles-pomo .icone { width: 30px; height: 30px; }
@@ -534,6 +566,19 @@ body.modo-cartoes .player { visibility: hidden; }
   </div>
 </div>
 
+<!-- primeira visita: escolher a voz -->
+<div class="fundo-modal" id="modalVoz" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tVoz" style="width:min(520px,100%)">
+    <div class="corpo" style="text-align:center;padding:26px 22px 22px">
+      <h2 id="tVoz" style="margin:0;font-size:22px">Bem-vindo ao Leitor de Estudo</h2>
+      <p class="ajuda" style="margin:0">Escolha a voz que vai ler os seus materiais. Toque em cada uma para ouvir.</p>
+      <div class="opcoes-voz" id="opcoesVoz" role="radiogroup" aria-label="Vozes"></div>
+      <small>Dá para trocar depois no botão da voz, no topo.</small>
+      <div class="linha-botoes" style="justify-content:center"><button class="pri" id="salvarVoz">Usar esta voz</button></div>
+    </div>
+  </div>
+</div>
+
 <!-- chave da IA -->
 <div class="fundo-modal" id="modalConfig" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tConfig">
@@ -549,15 +594,18 @@ body.modo-cartoes .player { visibility: hidden; }
 
 <!-- pomodoro: relógio flutuante, ajustes e aviso de fim de fase -->
 <div class="relogio" id="relogio" hidden role="timer" aria-live="off">
-  <div class="arrastar" title="Arraste para mudar de lugar"></div>
+  <div class="barra-relogio"><div class="arrastar" title="Arraste para mudar de lugar"></div>
+    <button class="minimizar" id="pomoOcultar" title="Minimizar" aria-label="Minimizar relógio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 12h12"/></svg></button></div>
   <svg class="anel" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="trilha"/><circle cx="60" cy="60" r="52" class="cheio" id="pomoAnel"/></svg>
   <div class="mostrador"><span class="fase" id="pomoFase">Foco</span><b id="pomoTempo">25:00</b><span class="ciclos" id="pomoCiclos"></span></div>
   <div class="controles-pomo">
     <button class="icone" id="pomoPlay" aria-label="Começar ou pausar"></button>
     <button class="icone" id="pomoPular" title="Pular fase" aria-label="Pular fase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 4 10 8-10 8zM19 5v14"/></svg></button>
-    <button class="icone" id="pomoOcultar" title="Ocultar relógio" aria-label="Ocultar relógio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
   </div>
 </div>
+<button class="relogio-mini" id="relogioMini" hidden title="Abrir o relógio do Pomodoro" aria-label="Abrir o relógio do Pomodoro">
+  <svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" class="trilha"/><circle cx="18" cy="18" r="15" class="cheio" id="pomoAnelMini"/></svg>
+  <span class="dentro"><small id="pomoFaseMini">Foco</small><b id="pomoTempoMini">25:00</b></span></button>
 <div class="pop" id="popPomo" hidden role="dialog" aria-label="Pomodoro" style="width:310px">
   <h3>Pomodoro</h3>
   <div class="pomo-tempos">
@@ -569,7 +617,7 @@ body.modo-cartoes .player { visibility: hidden; }
     <select id="pomoAviso"><option value="som">Som e notificação</option><option value="notif">Só notificação</option><option value="visual">Só visual, sem som</option></select></label>
   <label class="interruptor compacto"><span class="txt"><b>Começar junto com a leitura</b><small>Ao tocar ▶ ou abrir os flash cards</small></span>
     <input type="checkbox" id="pomoAuto" checked><span class="trilho"></span></label>
-  <label class="interruptor compacto"><span class="txt"><b>Mostrar relógio na tela</b><small>Oculto, o tempo aparece pequeno no topo</small></span>
+  <label class="interruptor compacto"><span class="txt"><b>Relógio aberto na tela</b><small>Desligado, fica minimizado numa bolinha com o tempo</small></span>
     <input type="checkbox" id="pomoMostrar" checked><span class="trilho"></span></label>
   <label class="interruptor compacto"><span class="txt"><b>Pausar a leitura no fim do foco</b><small>A voz para quando chega a hora da pausa</small></span>
     <input type="checkbox" id="pomoPararLeitura" checked><span class="trilho"></span></label>
@@ -631,6 +679,6 @@ body.modo-cartoes .player { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261025025521"></script>
+<script type="module" src="app.js?v=20261025030414"></script>
 </body>
 </html>
