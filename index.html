@@ -359,6 +359,81 @@ body.modo-cartoes .player { visibility: hidden; }
 .voz-card .ouvir { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; }
 .avatar.grande { width: 56px; height: 56px; font-size: 22px; }
 
+/* ---------- objetivo do estudo ---------- */
+.objetivo { display: grid; gap: 8px; }
+.objetivo[hidden] { display: none; }
+.objetivo .rot { font-weight: 600; font-size: 14px; }
+.chips-obj { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips-obj button { border: 1px solid var(--borda); background: var(--painel); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 500; color: var(--texto); }
+.chips-obj button:hover { border-color: var(--destaque); }
+.chips-obj button.ativo { background: var(--destaque-fundo); border-color: var(--destaque); color: var(--destaque-forte); font-weight: 600; }
+.objetivo input[type=text] { width: 100%; border: 1px solid var(--borda); border-radius: 10px; padding: 9px 12px; background: var(--fundo); }
+.faixa-obj { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding: 9px 14px;
+  border-radius: 12px; background: var(--painel); border: 1px solid var(--borda); font-size: 14px; color: var(--suave); }
+.faixa-obj b { color: var(--texto); }
+.faixa-obj .link { margin: 0; padding: 2px 6px; }
+.faixa-obj.aberta { display: grid; justify-items: start; }
+
+/* ---------- meu plano ---------- */
+.plano { display: grid; gap: 16px; }
+.plano-cab { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.plano-cab small { color: var(--destaque); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.plano-cab h1 { margin: 2px 0 4px; font-size: 26px; letter-spacing: -.02em; }
+.plano-cab span { color: var(--suave); }
+.plano-prog .rot { display: flex; justify-content: space-between; font-size: 14px; color: var(--suave); margin-bottom: 6px; }
+.plano-prog .barra-dominio { margin: 0; height: 10px; }
+.alerta-plano { padding: 12px 14px; border-radius: 12px; background: var(--pergunta-fundo); color: var(--pergunta); font-size: 14px; line-height: 1.5; }
+.ok-plano { padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); font-size: 14px; font-weight: 500; }
+.hoje-card, .proximos { background: var(--painel); border: 1px solid var(--borda); border-radius: 18px; padding: 18px; box-shadow: var(--sombra); display: grid; gap: 10px; }
+.hoje-cab { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.hoje-card h2, .proximos h2 { margin: 0; font-size: 18px; }
+.hoje-card h2 small { color: var(--suave); font-weight: 500; font-size: 14px; margin-left: 4px; }
+.meta-hoje { font-size: 13px; color: var(--suave); }
+.tarefa { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; background: var(--fundo); transition: opacity .3s, transform .3s; }
+.tarefa.concluindo { opacity: 0; transform: translateX(20px); }
+.tarefa .info-t { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.tarefa .info-t b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tarefa .info-t small { color: var(--suave); font-size: 13px; }
+.tarefa .pri { padding: 8px 14px; font-size: 14px; }
+.tarefa .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--borda); background: var(--painel); flex: none; display: grid; place-items: center; padding: 0; }
+.tarefa .check:hover { border-color: var(--ok); }
+.tarefa .feito-ic { background: var(--ok); border-color: var(--ok); color: var(--painel); font-weight: 700; font-size: 13px; }
+.tarefa.feita { opacity: .7; }
+.tarefa.feita b { text-decoration: line-through; text-decoration-color: var(--suave); }
+.vazio-t { margin: 4px 2px; color: var(--suave); }
+.proximos ul { list-style: none; margin: 0; padding: 0; display: grid; }
+.proximos li { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; padding: 9px 2px; border-top: 1px solid var(--borda); font-size: 14px; align-items: center; }
+.proximos li:first-child { border-top: 0; }
+.proximos .dia { font-weight: 600; } .proximos .dia small { color: var(--suave); font-weight: 400; }
+.proximos .desc { color: var(--suave); } .proximos .min { font-weight: 600; font-variant-numeric: tabular-nums; }
+.link.perigo { color: var(--suave); justify-self: start; font-weight: 500; font-size: 13px; }
+.link.perigo:hover { color: var(--erro); }
+.form-plano .campo { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+.form-plano input[type=text], .form-plano input[type=date] { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px; background: var(--painel); font-weight: 400; color: var(--texto); }
+.lista-mat { display: grid; gap: 6px; }
+.mat-check { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 12px; background: var(--painel); font-weight: 500; cursor: pointer; }
+.mat-check span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mat-check small { color: var(--suave); font-weight: 400; }
+.mat-check input { width: 18px; height: 18px; accent-color: var(--destaque); }
+.grade-dias { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.grade-dias label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--suave); text-align: center; }
+.grade-dias select { border: 1px solid var(--borda); border-radius: 8px; padding: 6px 2px; background: var(--painel); font-size: 13px; color: var(--texto); }
+.form-plano .interruptor { background: var(--painel); }
+.faixa-plano { display: flex; align-items: center; gap: 14px; width: 100%; margin-bottom: 14px; padding: 14px 16px; border-radius: 16px; text-align: left;
+  border: 1px solid var(--borda); background: var(--painel); box-shadow: var(--sombra); transition: transform .15s, border-color .15s; }
+.faixa-plano:hover { transform: translateY(-2px); border-color: var(--destaque); }
+.faixa-plano > span:first-child { font-size: 24px; }
+.faixa-plano div { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.faixa-plano small { color: var(--suave); font-size: 13px; }
+.faixa-plano .seta { font-size: 24px; color: var(--suave); }
+.faixa-plano.vazio { border-style: dashed; box-shadow: none; }
+@media (max-width: 820px) {
+  .grade-dias { grid-template-columns: repeat(4, 1fr); }
+  .tarefa { flex-wrap: wrap; } .tarefa .info-t { flex-basis: calc(100% - 40px); } .tarefa .pri { margin-left: 38px; }
+  .proximos li { grid-template-columns: 74px 1fr auto; }
+  .plano-cab h1 { font-size: 22px; }
+}
+
 /* ---------- pomodoro ---------- */
 .so-celular { display: none !important; }
 @media (max-width: 820px) { .so-celular { display: flex !important; } body:not(.na-biblioteca) #btnPomoNav { display: none !important; } }
@@ -533,6 +608,7 @@ body.modo-cartoes .player { visibility: hidden; }
     </div>
     <button class="nav principal" id="btnNovo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span class="rotulo-nav">Novo material</span></button>
     <button class="nav ativo" id="navBiblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M9 19V9M14 19V4M19 19v-7"/></svg><span class="rotulo-nav">Biblioteca</span></button>
+    <button class="nav" id="navPlano"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 15l2 2 4-4"/></svg><span class="rotulo-nav">Meu plano</span></button>
     <div class="espaco"></div>
     <button class="nav so-celular" id="btnPomoNav" aria-label="Pomodoro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg><span id="pomoMiniNav" style="font-size:12px;font-variant-numeric:tabular-nums"></span></button>
     <button class="nav" id="btnConfig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="rotulo-nav">Configurações</span></button>
@@ -582,6 +658,15 @@ body.modo-cartoes .player { visibility: hidden; }
         <span class="txt"><b>Organizar com IA</b><small>Divide em tópicos e cria resumo, perguntas de revisão e flash cards. Desligado: lê o texto como está.</small></span>
         <input type="checkbox" id="usarIa" checked><span class="trilho"></span>
       </label>
+      <div class="objetivo" id="objetivoBox">
+        <span class="rot">Para que é este estudo?</span>
+        <div class="chips-obj" role="radiogroup" aria-label="Objetivo do estudo">
+          <button data-obj="auto">✨ A IA identifica</button><button data-obj="prova">Prova ou concurso</button>
+          <button data-obj="entrevista">Entrevista de emprego</button><button data-obj="trabalho">Trabalho / atualização</button>
+          <button data-obj="aprender">Aprender por conta</button><button data-obj="outro">Outro…</button>
+        </div>
+        <input type="text" id="objOutro" placeholder="Ex.: apresentação de TCC, certificação AWS…" hidden>
+      </div>
       <label class="soltar" id="soltar">
         <input type="file" id="arquivo" accept=".pdf,.docx,.txt,.md" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
@@ -730,6 +815,6 @@ body.modo-cartoes .player { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261025032111"></script>
+<script type="module" src="app.js?v=20261025034038"></script>
 </body>
 </html>

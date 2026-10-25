@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025032111";
+import { paraFala } from "./texto.js?v=20261025034038";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -147,9 +147,10 @@ async function gemini(prompt, chave, aviso, valida) {
   throw new Error(ultimo);
 }
 
-async function organizar(trecho, chave, aviso) {
-  const o = await gemini(INSTRUCAO + "\n\nTRECHO:\n" + trecho, chave, aviso, (o) => Array.isArray(o.topicos) && o.topicos.length);
-  return { topicos: o.topicos, ingles: Array.isArray(o.ingles) ? o.ingles : [] };
+async function organizar(trecho, chave, aviso, objetivo) {
+  const prompt = INSTRUCAO.replace("Responda SOMENTE", linhaObjetivo(objetivo) + "Responda SOMENTE") + "\n\nTRECHO:\n" + trecho;
+  const o = await gemini(prompt, chave, aviso, (o) => Array.isArray(o.topicos) && o.topicos.length);
+  return { topicos: o.topicos, ingles: Array.isArray(o.ingles) ? o.ingles : [], objetivo: String(o.objetivo || "").toLowerCase().trim() };
 }
 
 const INSTRUCAO_CARTOES = `Crie flash cards para estudar para uma prova a partir do material abaixo, em português do Brasil.
@@ -165,7 +166,8 @@ function soLer(texto) {
 const indice = () => lembrar("estudos", []);
 function salvarEstudo(e) {
   if (!guardar("estudo:" + e.id, e)) throw new Error("o navegador não deixou salvar (espaço cheio ou modo anônimo)");
-  const resumo = { id: e.id, titulo: e.titulo, criado: e.criado, organizado_por: e.organizado_por, topicos: e.topicos.length, faltam: e.pendentes?.length || 0 };
+  const resumo = { id: e.id, titulo: e.titulo, criado: e.criado, organizado_por: e.organizado_por, topicos: e.topicos.length, faltam: e.pendentes?.length || 0,
+    objetivo: e.objetivo && e.objetivo.tipo !== "auto" ? nomeObjetivo(e.objetivo) : "" };
   guardar("estudos", [resumo, ...indice().filter((x) => x.id !== e.id)]);
 }
 
@@ -179,7 +181,9 @@ async function processar(e, chave) {
     const aviso = (t) => { andamento.set(e.id, { n, total, texto: t }); if (preparo?.id === e.id) mostrarPreparo(); else if (estudo) st.textContent = `“${e.titulo}”, parte ${n} de ${total}: ${t}`; else carregarLista(); };
     aviso("organizando…");
     try {
-      const o = await organizar(e.pendentes[0], chave, aviso);
+      const o = await organizar(e.pendentes[0], chave, aviso, e.objetivo);
+      // "A IA identifica": o objetivo achado na 1ª parte vale para as próximas (e aparece no material)
+      if (e.objetivo?.tipo === "auto" && OBJETIVOS[o.objetivo]) e.objetivo = { tipo: o.objetivo, detectado: true };
       e.topicos.push(...o.topicos); e.ingles = [...new Set([...(e.ingles || []), ...o.ingles])];
       e.pendentes.shift();
       salvarEstudo(e); carregarLista();
@@ -213,13 +217,14 @@ async function enviar(arquivo) {
   } catch (err) { if (preparo && !preparo.id) mostrarPreparo({ erro: err.message }); else { st.className = "estado erro"; st.textContent = "Erro: " + err.message; } }
 }
 
-async function criarMaterial(titulo, texto, tipo) {
+async function criarMaterial(titulo, texto, tipo, objetivo = objetivoEscolhido(), forcarIa = false) {
   const st = $("#estado"); st.className = "estado";
   const chave = $("#chave").value.trim();
-  const querIa = $("#usarIa").checked, usarIa = querIa && chave;
+  const querIa = forcarIa || $("#usarIa").checked, usarIa = querIa && chave;
   const agora = new Date();
   const e = { id: String(agora.getTime()), titulo, tipo, criado: agora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }),
-    organizado_por: usarIa ? "Gemini" : "sem IA", topicos: [], pronuncia: {}, pendentes: [], partes_total: 0 };
+    organizado_por: usarIa ? "Gemini" : "sem IA", topicos: [], pronuncia: {}, pendentes: [], partes_total: 0,
+    original: texto, objetivo: usarIa ? objetivo : null }; // o texto original permite organizar de novo com outro objetivo
   if (!usarIa) {
     e.topicos = soLer(texto); salvarEstudo(e);
     st.textContent = querIa ? "Sem chave do Gemini: o material foi aberto como está. Coloque a chave em “Chave da IA” para organizar." : "";
@@ -241,7 +246,7 @@ async function criarMaterial(titulo, texto, tipo) {
 let preparo = null; // { id, titulo, etapa, palavras, erro }
 const andamento = new Map(); // id → { n, total, texto } da organização em curso (também aparece na biblioteca)
 function mostrarPreparo(mudar = {}) {
-  parar(); estudo = null;
+  parar(); estudo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   preparo = { ...preparo, ...mudar };
   document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
   $("#navBiblioteca").classList.remove("ativo"); $("#linhaProgresso").style.width = "0";
@@ -359,7 +364,7 @@ const ICONE_TIPO = {
 };
 
 function mostrarBiblioteca() {
-  parar(); estudo = null; modo = "ler"; preparo = null;
+  parar(); estudo = null; modo = "ler"; preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   $("#tituloTopo").textContent = "Biblioteca";
   document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
   $("#navBiblioteca").classList.add("ativo"); $("#linhaProgresso").style.width = "0";
@@ -369,20 +374,21 @@ function mostrarBiblioteca() {
   const ult = lembrar("ultimo", null), ultE = ult && lista.find((e) => e.id === ult), ultPos = ultE && lembrar("pos:" + ult, null);
   const continuar = ultE && ultPos ? `<button class="continuar-card" id="continuarCard"><span class="play-c"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
     <div><small>Continuar de onde parou</small><b>${esc(ultE.titulo)}</b><small>Tópico ${ultPos.topico + 1} de ${ultE.topicos}${ultPos.pct ? ` · ${Math.round(ultPos.pct * 100)}% lido` : ""}</small></div></button>` : "";
-  $("#coluna").innerHTML = continuar + `<div class="cab"><h1>Biblioteca<small>${lista.length || ""}</small></h1>${lista.length ? '<button class="pri" id="novoCab">+ Novo material</button>' : ""}</div>` +
+  $("#coluna").innerHTML = (lista.length ? faixaPlano() : "") + continuar + `<div class="cab"><h1>Biblioteca<small>${lista.length || ""}</small></h1>${lista.length ? '<button class="pri" id="novoCab">+ Novo material</button>' : ""}</div>` +
     (lista.length ? `<div class="lista">${lista.map((e) => {
       const salvo = lembrar("pos:" + e.id, {}), pct = Math.round((salvo.pct || 0) * 100);
       const ia = e.organizado_por !== "sem IA";
       return `<div class="material" role="button" tabindex="0" data-id="${esc(e.id)}">
         <span class="miniatura">${ICONE_TIPO[e.tipo === "pdf" ? "pdf" : "txt"]}</span>
         <span class="info"><b>${esc(e.titulo)}</b>
-          <small>${andamento.has(e.id) ? `<span class="etiqueta organizando">Organizando parte ${andamento.get(e.id).n} de ${andamento.get(e.id).total}…</span>` : `<span class="etiqueta ${ia ? "ia" : ""}">${ia ? "Organizado com IA" : "Texto original"}</span>`} · ${e.topicos} tópicos${e.faltam ? ` · faltam ${e.faltam} partes` : ""} · ${esc(e.criado)}${pct ? ` · ${pct}% lido` : ""}</small>
+          <small>${andamento.has(e.id) ? `<span class="etiqueta organizando">Organizando parte ${andamento.get(e.id).n} de ${andamento.get(e.id).total}…</span>` : `<span class="etiqueta ${ia ? "ia" : ""}">${ia ? "Organizado com IA" : "Texto original"}</span>`} · ${e.topicos} tópicos${e.objetivo ? ` · 🎯 ${esc(e.objetivo)}` : ""}${e.faltam ? ` · faltam ${e.faltam} partes` : ""} · ${esc(e.criado)}${pct ? ` · ${pct}% lido` : ""}</small>
           ${pct ? `<span class="barrinha"><i style="width:${pct}%"></i></span>` : ""}</span>
         <button class="apagar-item" data-apagar="${esc(e.id)}" title="Apagar">Apagar</button></div>`;
     }).join("")}</div><div style="margin-top:18px">${soltar}</div>` : soltar);
   // o clique na área de soltar abre a janela, onde fica o interruptor de organizar com IA
   $("#soltarBiblioteca").onclick = (ev) => { ev.preventDefault(); abrirModal("#modalNovo"); };
   $("#continuarCard") && ($("#continuarCard").onclick = () => abrir(ult));
+  $("#faixaPlano") && ($("#faixaPlano").onclick = () => mostrarPlano());
   $("#novoCab") && ($("#novoCab").onclick = () => abrirModal("#modalNovo"));
   document.querySelectorAll(".material").forEach((m) => {
     m.onclick = (ev) => { if (!ev.target.closest(".apagar-item")) abrir(m.dataset.id); };
@@ -398,10 +404,10 @@ function apagarMaterial(id) {
   guardar("estudos", indice().filter((e) => e.id !== id));
 }
 // a lista só aparece na tela da biblioteca; nas outras telas não há o que atualizar
-function carregarLista() { if (!estudo && !preparo) mostrarBiblioteca(); }
+function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025032111", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261025034038", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -469,7 +475,7 @@ function abrir(id) {
   parar();
   estudo = lembrar("estudo:" + id, null);
   if (!estudo) return;
-  preparo = null;
+  preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   try { localStorage.setItem("ultimo", JSON.stringify(id)); } catch {}
   modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "na-biblioteca");
   $("#navBiblioteca").classList.remove("ativo"); $("#tituloMaterial").textContent = estudo.titulo;
@@ -533,7 +539,7 @@ function montar(t, p = 0) {
   const tp = estudo.topicos[topico];
   const span = (texto, tipo) => { fila.push({ texto, tipo }); return `<span class="frase" data-i="${fila.length - 1}">${esc(texto)}</span> `; };
   const n = estudo.topicos.length;
-  let html = faixaIa() + abas() + `<div class="nav-topico">
+  let html = faixaIa() + faixaObjetivo() + abas() + `<div class="nav-topico">
     <button class="icone" id="topAnt" title="Tópico anterior" aria-label="Tópico anterior" ${topico ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
     <button class="btn-sumario" id="abrirSumario" title="Ver todos os tópicos"><span class="n">${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
     <button class="icone" id="topProx" title="Próximo tópico" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
@@ -553,6 +559,7 @@ function montar(t, p = 0) {
   }
   html += `</div><button class="apagar" id="apagar">Apagar este material</button>`;
   $("#coluna").innerHTML = html;
+  ligarObjetivo();
   $("#barraMarca").hidden = true;
   pintarMarcas();
   ligarAbas();
@@ -801,6 +808,7 @@ function ir(i) {
   const pct = (topico + (fila.length ? pos / fila.length : 0)) / estudo.topicos.length;
   $("#linhaProgresso").style.width = Math.round(pct * 100) + "%";
   guardar("pos:" + estudo.id, { topico, pos, pct });
+  if (fila.length && pos >= fila.length - 1) marcarLido(estudo, topico);
 }
 
 function preparar(i) {
@@ -945,9 +953,9 @@ function montarCartoes() {
   const gerar = semIa ? `<button class="sec" id="gerarCartoes">${todos.length ? "Gerar mais cartões com IA" : "Gerar flash cards com IA"}</button>` : "";
   let corpo;
   if (!todos.length) corpo = `<div class="vazio"><h2>Ainda não há flash cards</h2><p>Gere os cartões com IA a partir deste material.</p></div>`;
-  else if (!sessao.length) corpo = `<div class="fim-rodada"><h2>Rodada concluída</h2>
+  else if (!sessao.length) { revisoesFeitas(); corpo = `<div class="fim-rodada"><h2>Rodada concluída</h2>
     <p>${rodada.acertos} acertos e ${rodada.erros} erros nesta rodada · ${dominados} de ${todos.length} cartões dominados.</p>
-    <button class="pri" id="recomecar">Nova rodada</button></div>`;
+    <button class="pri" id="recomecar">Nova rodada</button></div>`; }
   else {
     const c = sessao[0];
     corpo = `<div class="flash ${virado ? "virado" : ""} ${entrar ? "entrando" : ""}" id="virar" role="button" tabindex="0" aria-label="Virar cartão">
@@ -1044,6 +1052,279 @@ for (const id of ["prefPerguntas", "prefResumo"]) {
   };
 }
 $("#linhaPensar").hidden = !$("#prefPerguntas").checked;
+
+
+// ---------- objetivo do estudo ----------
+// A organização muda conforme o objetivo (prova, entrevista, trabalho, aprender). Padrão: a IA identifica.
+const OBJETIVOS = {
+  prova: ["Prova ou concurso", "O estudante vai fazer uma PROVA ou CONCURSO: priorize definições, números, datas, listas, exceções e pegadinhas que costumam cair; perguntas e flash cards no estilo de prova."],
+  entrevista: ["Entrevista de emprego", "O estudante vai fazer uma ENTREVISTA DE EMPREGO sobre este assunto: em cada tópico, diga como ele costuma aparecer numa entrevista; as perguntas de revisão são perguntas que um entrevistador faria, com respostas-modelo curtas, em primeira pessoa, com um exemplo prático."],
+  trabalho: ["Trabalho / atualização", "O estudante quer se ATUALIZAR para o TRABALHO: foque no que muda na prática, aplicações, cuidados e boas práticas; menos decoreba."],
+  aprender: ["Aprender por conta", "O estudante quer APRENDER por interesse próprio: explique com calma, com exemplos e analogias do dia a dia; perguntas de compreensão, não de decoreba."],
+};
+function linhaObjetivo(obj) {
+  if (!obj || obj.tipo === "auto")
+    return `- Identifique o objetivo mais provável de quem estuda este material entre: prova (prova ou concurso), entrevista (entrevista de emprego), trabalho (atualização profissional), aprender (interesse próprio). Organize pensando nele e informe no JSON em "objetivo" (uma dessas palavras).\n`;
+  if (obj.tipo === "outro") return `- Objetivo do estudante, nas palavras dele: "${obj.texto}". Organize pensando nisso.\n`;
+  return `- ${OBJETIVOS[obj.tipo][1]}\n`;
+}
+const nomeObjetivo = (obj) => (!obj ? "" : obj.tipo === "outro" ? obj.texto : OBJETIVOS[obj.tipo]?.[0] || "");
+let objetivoNovo = lembrar("objetivo", { tipo: "auto" });
+function desenharObjetivo() {
+  document.querySelectorAll("[data-obj]").forEach((b) => b.classList.toggle("ativo", b.dataset.obj === objetivoNovo.tipo));
+  $("#objOutro").hidden = objetivoNovo.tipo !== "outro";
+  $("#objetivoBox").hidden = !$("#usarIa").checked;
+}
+document.querySelectorAll("[data-obj]").forEach((b) => (b.onclick = () => {
+  objetivoNovo = b.dataset.obj === "outro" ? { tipo: "outro", texto: $("#objOutro").value.trim() } : { tipo: b.dataset.obj };
+  guardar("objetivo", objetivoNovo); desenharObjetivo();
+  if (b.dataset.obj === "outro") $("#objOutro").focus();
+}));
+$("#objOutro").value = objetivoNovo.texto || "";
+$("#objOutro").oninput = () => { objetivoNovo = { tipo: "outro", texto: $("#objOutro").value.trim() }; guardar("objetivo", objetivoNovo); };
+$("#usarIa").addEventListener("change", desenharObjetivo);
+desenharObjetivo();
+// objetivo escolhido para o próximo material ("Outro" sem texto vira "A IA identifica")
+const objetivoEscolhido = () => (objetivoNovo.tipo === "outro" && !objetivoNovo.texto ? { tipo: "auto" } : objetivoNovo);
+
+// faixa no material: "Organizado pensando em… · Mudar" (mudar cria uma versão nova, organizada de novo pela IA)
+function faixaObjetivo() {
+  if (!estudo?.objetivo || estudo.organizado_por === "sem IA" || organizando.has(estudo.id)) return "";
+  const auto = estudo.objetivo.tipo === "auto";
+  return `<div class="faixa-obj" id="faixaObj"><span>🎯 Organizado pensando em: <b>${esc(auto ? "objetivo identificado pela IA" : nomeObjetivo(estudo.objetivo))}</b>${estudo.objetivo.detectado ? " <small>(a IA identificou)</small>" : ""}</span>
+    <button class="link" id="mudarObj">Mudar</button></div>`;
+}
+function ligarObjetivo() {
+  const b = $("#mudarObj"); if (!b) return;
+  b.onclick = () => {
+    $("#faixaObj").outerHTML = `<div class="faixa-obj aberta" id="faixaObj"><span>Organizar de novo pensando em:</span>
+      <div class="chips-obj">${Object.entries(OBJETIVOS).map(([k, [n]]) => `<button data-reorg="${k}" class="${estudo.objetivo.tipo === k ? "ativo" : ""}">${n}</button>`).join("")}</div>
+      <small>Cria uma versão nova deste material (usa a IA de novo). A atual continua na biblioteca.</small>
+      <button class="link" id="cancelarObj">Cancelar</button></div>`;
+    $("#cancelarObj").onclick = () => montar(topico, pos);
+    document.querySelectorAll("[data-reorg]").forEach((c) => (c.onclick = () => {
+      const chave = pedirChave(); if (!chave) return;
+      const texto = estudo.original || estudo.topicos.map((t) => t.texto).join("\n\n");
+      criarMaterial(estudo.titulo, texto, estudo.tipo, { tipo: c.dataset.reorg }, true);
+    }));
+  };
+}
+
+// ---------- tópico lido (base do plano): marca quando a leitura chega ao fim do tópico ----------
+const dataLocal = (d = new Date()) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
+const hojeISO = () => dataLocal();
+const somaDias = (iso, n) => { const d = new Date(iso + "T12:00"); d.setDate(d.getDate() + n); return dataLocal(d); };
+const diasEntre = (a, b) => Math.round((new Date(b + "T12:00") - new Date(a + "T12:00")) / 86400000);
+const dataBR = (iso) => new Date(iso + "T12:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+function marcarLido(e, t) {
+  if (!e || e.lidosEm?.[t]) return;
+  (e.lidosEm ||= {})[t] = hojeISO();
+  salvarEstudo(e);
+}
+
+// ---------- meu plano ----------
+// Data da prova + materiais + minutos por dia da semana → distribui a leitura dos tópicos até a véspera e encaixa
+// revisões dos flash cards 1, 3 e 7 dias depois de cada tópico lido; a véspera é de revisão geral. Recalcula todo dia
+// com o que falta (atrasar ou adiantar só redistribui). Fica no localStorage ("plano") e vai no backup.
+const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const ESPACOS = [1, 3, 7];
+const conta = (t) => (t || "").split(/\s+/).filter(Boolean).length;
+const minTopico = (t) => Math.max(3, Math.round((conta(t.texto) + conta(t.resumo)) / 130 + (t.perguntas?.length || 0) + 1));
+let naTelaPlano = false, rascunho = null;
+
+function calcularPlano(pl, hoje = hojeISO()) {
+  const mats = pl.materiais.map((id) => lembrar("estudo:" + id, null)).filter(Boolean);
+  const pendentes = [], lidos = [];
+  mats.forEach((e) => e.topicos.forEach((t, i) => (e.lidosEm?.[i] ? lidos : pendentes).push({ e, i, t, min: minTopico(t) })));
+  const vespera = somaDias(pl.data, -1);
+  const dias = [];
+  for (let d = hoje; d <= vespera; d = somaDias(d, 1)) dias.push(d);
+  const revGeral = dias.length >= 2 ? vespera : null;
+  const agenda = Object.fromEntries(dias.map((d) => [d, { leitura: [], revisao: [], min: 0, cap: pl.minutos[new Date(d + "T12:00").getDay()] || 0 }]));
+  const feito = (k) => !!pl.feitos?.[k];
+  const marcarRevisoes = (e, i, base) => {
+    if (!pl.revisoes) return;
+    for (const n of ESPACOS) {
+      const k = `${e.id}|${i}|${n}`, d = somaDias(base, n);
+      if (feito(k) || d >= pl.data) continue;
+      const dia = d < hoje ? hoje : d;
+      if (agenda[dia] && dia !== revGeral) { agenda[dia].revisao.push({ e, i, k }); agenda[dia].min += 3; }
+    }
+  };
+  lidos.forEach(({ e, i }) => marcarRevisoes(e, i, e.lidosEm[i]));
+  const proximo = pendentes[0] || null; // para "Quer adiantar?"
+  // espalha a leitura até a data (não enche o primeiro dia): a meta de cada dia é o que falta ÷ os dias de leitura que restam
+  const diasLeitura = dias.filter((d) => d !== revGeral && agenda[d].cap > 0);
+  let disponivel = 0;
+  for (const d of dias) {
+    const a = agenda[d];
+    if (d === revGeral) { a.geral = true; a.min = a.cap; disponivel += a.cap; continue; }
+    disponivel += a.cap;
+    const restam = diasLeitura.length - diasLeitura.indexOf(d);
+    const alvo = a.cap > 0 ? pendentes.reduce((n, p) => n + p.min, 0) / restam : 0;
+    let lendo = 0;
+    while (pendentes.length && a.cap > 0 && (!a.leitura.length ? a.min < a.cap : a.min + pendentes[0].min <= a.cap && lendo + pendentes[0].min <= alvo + 2)) {
+      const p = pendentes.shift();
+      a.leitura.push(p); a.min += p.min; lendo += p.min;
+      marcarRevisoes(p.e, p.i, d); // revisões futuras desse tópico entram na conta dos próximos dias
+    }
+  }
+  const total = mats.reduce((n, e) => n + e.topicos.length, 0);
+  return { mats, agenda, dias, revGeral, proximo, falta: pendentes.reduce((n, p) => n + p.min, 0), sobra: pendentes.length,
+    lidos: lidos.length, total, aLer: [...pendentes, ...Object.values(agenda).flatMap((a) => a.leitura)].reduce((n, p) => n + p.min, 0), disponivel };
+}
+// agrupa tópicos seguidos do mesmo material: "tópicos 5–8"
+function grupos(itens) {
+  const g = [];
+  for (const it of itens) {
+    const ult = g.at(-1);
+    if (ult && ult.e.id === it.e.id) { ult.itens.push(it); ult.min += it.min || 3; } else g.push({ e: it.e, itens: [it], min: it.min || 3 });
+  }
+  return g;
+}
+const faixaTopicos = (is) => {
+  const n = is.map((x) => x + 1).sort((a, b) => a - b);
+  return n.length === 1 ? `tópico ${n[0]}` : n.every((x, k) => !k || x === n[k - 1] + 1) ? `tópicos ${n[0]}–${n.at(-1)}` : `tópicos ${n.join(", ")}`;
+};
+const horas = (min) => (min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ""}`);
+
+function mostrarPlano(editar = false) {
+  parar(); estudo = null; preparo = null; naTelaPlano = true; modo = "ler";
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
+  $("#navBiblioteca").classList.remove("ativo"); $("#navPlano").classList.add("ativo");
+  $("#tituloTopo").textContent = "Meu plano"; $("#linhaProgresso").style.width = "0";
+  const pl = lembrar("plano", null);
+  if (!pl || editar) return formPlano(pl);
+  const c = calcularPlano(pl), hoje = hojeISO(), a = c.agenda[hoje], faltam = diasEntre(hoje, pl.data);
+  const focoHoje = lembrar(hojeChave(), 0) * pomo.foco;
+  const lidosHoje = c.mats.flatMap((e) => Object.entries(e.lidosEm || {}).filter(([, d]) => d === hoje).map(([i]) => ({ e, i: +i })));
+  const tarefa = (tipo, g) => {
+    const is = g.itens.map((x) => x.i);
+    const titulo = tipo === "ler" ? `Ler: ${esc(g.e.titulo)}` : `Revisar flash cards: ${esc(g.e.titulo)}`;
+    return `<div class="tarefa"><button class="check" data-check="${tipo}|${g.e.id}|${is.join(",")}" aria-label="Marcar como feito"></button>
+      <div class="info-t"><b>${titulo}</b><small>${faixaTopicos(is)} · ~${horas(g.min)}</small></div>
+      <button class="pri" data-comecar="${tipo}|${g.e.id}|${is[0]}|${is.length}">Começar</button></div>`;
+  };
+  let tarefas = "";
+  if (faltam < 0) tarefas = `<p class="vazio-t">A data do plano já passou. Edite o plano para uma nova data.</p>`;
+  else if (faltam === 0) tarefas = `<p class="vazio-t">É hoje! Faça uma revisão leve dos flash cards e confie no que você estudou. Boa sorte! 🍀</p>`;
+  else if (!a) tarefas = "";
+  else if (a.geral) tarefas = `<div class="tarefa"><span class="check feito-ic">★</span><div class="info-t"><b>Revisão geral</b><small>Flash cards de todos os materiais e as suas dúvidas marcadas</small></div>
+      <button class="pri" data-comecar="geral|${c.mats[0]?.id || ""}|0">Começar</button></div>`;
+  else {
+    tarefas = grupos(a.revisao).map((g) => tarefa("rev", g)).join("") + grupos(a.leitura).map((g) => tarefa("ler", g)).join("");
+    if (!tarefas) tarefas = `<p class="vazio-t">${a.cap ? "Nada pendente para hoje. 🎉" : "Hoje é folga no seu plano. Descanse! 😌"}</p>` +
+      (c.proximo ? `<div class="tarefa"><span class="check feito-ic" style="background:var(--destaque);border-color:var(--destaque)">+</span><div class="info-t"><b>Quer adiantar? ${esc(c.proximo.e.titulo)}</b><small>${faixaTopicos([c.proximo.i])} · ~${horas(c.proximo.min)}</small></div>
+        <button class="sec" data-comecar="ler|${c.proximo.e.id}|${c.proximo.i}|1">Adiantar</button></div>` : "");
+  }
+  const feitosHoje = grupos(lidosHoje).map((g) => `<div class="tarefa feita"><span class="check feito-ic">✓</span><div class="info-t"><b>Lido: ${esc(g.e.titulo)}</b><small>${faixaTopicos(g.itens.map((x) => x.i))}</small></div></div>`).join("");
+  const proximos = c.dias.slice(1, 8).map((d) => {
+    const x = c.agenda[d], dt = new Date(d + "T12:00");
+    const desc = x.geral ? "Revisão geral" : !x.cap ? "Folga" : [x.leitura.length && `ler ${x.leitura.length} tópico${x.leitura.length > 1 ? "s" : ""}`, x.revisao.length && `revisar ${x.revisao.length}`].filter(Boolean).join(" · ") || "livre";
+    return `<li><span class="dia">${DIAS[dt.getDay()]} <small>${dataBR(d)}</small></span><span class="desc">${desc}</span><span class="min">${x.cap ? horas(Math.min(x.min || 0, x.cap) || 0) : "—"}</span></li>`;
+  }).join("");
+  const pct = c.total ? Math.round((c.lidos / c.total) * 100) : 0;
+  $("#coluna").innerHTML = `<div class="plano">
+    <div class="plano-cab"><div><small>🎯 Meu plano</small><h1>${esc(pl.titulo)}</h1>
+      <span>${new Date(pl.data + "T12:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} · ${faltam > 1 ? `faltam ${faltam} dias` : faltam === 1 ? "é amanhã!" : faltam === 0 ? "é hoje!" : "já passou"}</span></div>
+      <button class="sec" id="editarPlano">Editar</button></div>
+    <div class="plano-prog"><div class="rot"><span>${c.lidos} de ${c.total} tópicos lidos</span><b>${pct}%</b></div><div class="barra-dominio"><i style="width:${pct}%"></i></div></div>
+    ${c.sobra ? `<div class="alerta-plano">⚠️ Não dá tempo de ler tudo até a prova: faltam ~${horas(c.falta)} de leitura além do que cabe nos seus dias. Aumente o tempo por dia em <b>Editar</b>, ou foque nos tópicos principais e use os flash cards nos outros.</div>` : ""}
+    <section class="hoje-card"><div class="hoje-cab"><h2>Hoje <small>${DIAS[new Date().getDay()]} ${dataBR(hoje)}</small></h2>
+      <span class="meta-hoje">${a && a.cap ? `${horas(Math.min(a.min, a.cap))} planejados` : ""}${focoHoje ? ` · 🍅 ${horas(focoHoje)} de foco` : ""}</span></div>
+      ${tarefas}${feitosHoje}</section>
+    ${proximos ? `<section class="proximos"><h2>Próximos dias</h2><ul>${proximos}</ul></section>` : ""}
+    <button class="link perigo" id="apagarPlano">Apagar plano</button></div>`;
+  $("#editarPlano").onclick = () => mostrarPlano(true);
+  $("#apagarPlano").onclick = () => {
+    const b = $("#apagarPlano");
+    if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = "Clique de novo para apagar o plano"; return; }
+    try { localStorage.removeItem("plano"); } catch {} mostrarPlano();
+  };
+  document.querySelectorAll("[data-check]").forEach((b) => (b.onclick = () => {
+    const [tipo, id, is] = b.dataset.check.split("|"), e = lembrar("estudo:" + id, null);
+    if (!e) return;
+    if (tipo === "ler") is.split(",").forEach((i) => marcarLido(e, +i));
+    else { pl.feitos ||= {}; is.split(",").forEach((i) => ESPACOS.forEach((n) => { if (somaDias(e.lidosEm?.[i] || hoje, n) <= hoje) pl.feitos[`${id}|${i}|${n}`] = true; })); guardar("plano", pl); }
+    b.closest(".tarefa").classList.add("concluindo");
+    setTimeout(() => mostrarPlano(), 380);
+  }));
+  document.querySelectorAll("[data-comecar]").forEach((b) => (b.onclick = () => {
+    const [tipo, id, i, n] = b.dataset.comecar.split("|");
+    if (!lembrar("estudo:" + id, null)) return;
+    abrir(id);
+    if (tipo === "ler") { montar(+i, 0); tocar(); }
+    else { modo = "cartoes"; document.body.classList.add("modo-cartoes"); filtroTopico = tipo === "rev" && n === "1" ? i : "todos"; novaRodada(); }
+  }));
+}
+
+function formPlano(pl) {
+  const lista = indice();
+  const base = pl || { titulo: "", data: somaDias(hojeISO(), 14), materiais: lista[0] ? [lista[0].id] : [], minutos: { 0: 0, 1: 60, 2: 60, 3: 60, 4: 60, 5: 60, 6: 90 }, revisoes: true, feitos: {} };
+  rascunho = JSON.parse(JSON.stringify(base));
+  const OPCOES = [0, 15, 30, 45, 60, 90, 120, 180, 240];
+  $("#coluna").innerHTML = `<div class="plano form-plano">
+    <div class="plano-cab"><div><small>🎯 Meu plano</small><h1>${pl ? "Editar plano" : "Montar meu plano de estudo"}</h1>
+      <span>Diga a data e quanto tempo você tem: o plano distribui os tópicos e as revisões até lá.</span></div></div>
+    ${!lista.length ? `<div class="alerta-plano">Primeiro adicione um material na biblioteca; depois volte aqui para montar o plano.</div>` : ""}
+    <label class="campo">O que você vai fazer?<input type="text" id="plTitulo" placeholder="Ex.: Prova de Banco de Dados, entrevista na empresa X…" value="${esc(rascunho.titulo)}"></label>
+    <label class="campo">Quando?<input type="date" id="plData" min="${somaDias(hojeISO(), 1)}" value="${rascunho.data}"></label>
+    <div class="campo">Materiais que entram no plano
+      <div class="lista-mat">${lista.map((e) => `<label class="mat-check"><input type="checkbox" value="${esc(e.id)}" ${rascunho.materiais.includes(e.id) ? "checked" : ""}><span>${esc(e.titulo)}</span><small>${e.topicos} tópicos${e.objetivo ? ` · ${esc(e.objetivo)}` : ""} · ${esc(String(e.criado).split(",")[0])}</small></label>`).join("") || '<small class="ajuda">Nenhum material ainda.</small>'}</div></div>
+    <div class="campo">Tempo de estudo por dia
+      <div class="grade-dias">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label><span>${DIAS[d]}</span><select data-dia="${d}">${OPCOES.map((m) => `<option value="${m}" ${+rascunho.minutos[d] === m ? "selected" : ""}>${m ? horas(m) : "folga"}</option>`).join("")}</select></label>`).join("")}</div></div>
+    <label class="interruptor"><span class="txt"><b>Revisões espaçadas</b><small>Revisa os flash cards de cada tópico 1, 3 e 7 dias depois de ler (é o que mais ajuda a lembrar na prova)</small></span>
+      <input type="checkbox" id="plRev" ${rascunho.revisoes ? "checked" : ""}><span class="trilho"></span></label>
+    <div class="previa-plano" id="previaPlano"></div>
+    <div class="linha-botoes">${pl ? '<button class="sec" id="cancelarPlano">Cancelar</button>' : ""}<button class="pri" id="salvarPlano">${pl ? "Salvar plano" : "Criar meu plano"}</button></div></div>`;
+  const ler = () => {
+    rascunho.titulo = $("#plTitulo").value.trim();
+    rascunho.data = $("#plData").value;
+    rascunho.materiais = [...document.querySelectorAll(".mat-check input:checked")].map((c) => c.value);
+    document.querySelectorAll("[data-dia]").forEach((s) => (rascunho.minutos[s.dataset.dia] = +s.value));
+    rascunho.revisoes = $("#plRev").checked;
+  };
+  const previa = () => {
+    ler();
+    const ok = rascunho.data > hojeISO() && rascunho.materiais.length;
+    $("#salvarPlano").disabled = !ok || !rascunho.titulo;
+    if (!ok) { $("#previaPlano").innerHTML = `<small class="ajuda">Escolha uma data futura e pelo menos um material.</small>`; return; }
+    const c = calcularPlano(rascunho);
+    $("#previaPlano").innerHTML = `<div class="${c.sobra ? "alerta-plano" : "ok-plano"}">${c.sobra
+      ? `⚠️ Leitura: ~${horas(c.aLer)} · tempo até a prova: ~${horas(c.disponivel)}. Não cabe tudo: aumente o tempo por dia ou escolha menos materiais.`
+      : `✓ Leitura: ~${horas(c.aLer)} em ${c.dias.length} dias · tempo disponível: ~${horas(c.disponivel)}${c.revGeral ? " · véspera reservada para revisão geral" : ""}.`}</div>`;
+  };
+  $("#coluna").querySelectorAll("input, select").forEach((x) => (x.oninput = x.onchange = previa));
+  previa();
+  $("#cancelarPlano") && ($("#cancelarPlano").onclick = () => mostrarPlano());
+  $("#salvarPlano").onclick = () => {
+    ler(); rascunho.criado ||= hojeISO();
+    guardar("plano", rascunho); toast("Plano criado! Toda vez que abrir, a tarefa do dia aparece aqui e na biblioteca.", [], 5000);
+    mostrarPlano();
+  };
+}
+$("#navPlano").onclick = () => mostrarPlano();
+
+// faixa do plano no topo da biblioteca
+function faixaPlano() {
+  const pl = lembrar("plano", null);
+  if (!pl) return `<button class="faixa-plano vazio" id="faixaPlano"><span>🎯</span><div><b>Tem prova ou entrevista marcada?</b><small>Monte um plano: diga a data e quanto tempo tem por dia</small></div><span class="seta">›</span></button>`;
+  const c = calcularPlano(pl), hoje = hojeISO(), a = c.agenda[hoje], faltam = diasEntre(hoje, pl.data);
+  const n = a ? grupos(a.leitura).length + grupos(a.revisao).length + (a.geral ? 1 : 0) : 0;
+  const quando = faltam > 1 ? `faltam ${faltam} dias` : faltam === 1 ? "é amanhã" : faltam === 0 ? "é hoje" : "já passou";
+  return `<button class="faixa-plano" id="faixaPlano"><span>🎯</span><div><b>${esc(pl.titulo)}: ${quando}</b>
+    <small>${faltam < 0 ? "Edite o plano para uma nova data" : n ? `Hoje: ${n} tarefa${n > 1 ? "s" : ""} · ~${horas(Math.min(a.min, a.cap) || a.min)}` : a && !a.cap ? "Hoje é folga" : "Nada pendente para hoje 🎉"} · ${c.lidos} de ${c.total} tópicos lidos</small></div><span class="seta">›</span></button>`;
+}
+
+// rodada de flash cards terminada: as revisões do plano que venciam até hoje para este material contam como feitas
+function revisoesFeitas() {
+  const pl = lembrar("plano", null);
+  if (!pl || !estudo || !pl.materiais.includes(estudo.id)) return;
+  const hoje = hojeISO(); pl.feitos ||= {};
+  Object.entries(estudo.lidosEm || {}).forEach(([i, d]) => ESPACOS.forEach((n) => { if (somaDias(d, n) <= hoje) pl.feitos[`${estudo.id}|${i}|${n}`] = true; }));
+  guardar("plano", pl);
+}
+
 mostrarVoz();
 mostrarBiblioteca();
 if (lembrar("voz", null) === null) boasVindas();
@@ -1073,7 +1354,7 @@ pomo.fase ??= "foco"; pomo.ciclo ??= 0;
 const NOMES_FASE = { foco: "Foco", pausa: "Pausa", longa: "Pausa longa" };
 const duracao = (f) => (pomo[f] || POMO_PADRAO[f]) * 60000;
 const salvarPomo = () => guardar("pomo", pomo);
-const hojeChave = () => "pomoHoje:" + new Date().toISOString().slice(0, 10);
+const hojeChave = () => "pomoHoje:" + dataLocal();
 const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
 const restante = () => (pomo.rodando ? pomo.fimEm - Date.now() : pomo.restante ?? duracao(pomo.fase));
 
@@ -1302,7 +1583,7 @@ $("#letraMais").onclick = () => passoLetra(1);
 aplicarTema(); aplicarLetra();
 
 // ---------- backup: exportar e importar a biblioteca (um arquivo .json) ----------
-const PREFS_BACKUP = ["voz", "vel", "pensar", "prefPerguntas", "prefResumo", "usarIa", "lerCartao", "pomo", "tema", "escalaTexto", "ultimo"];
+const PREFS_BACKUP = ["voz", "vel", "pensar", "prefPerguntas", "prefResumo", "usarIa", "lerCartao", "pomo", "tema", "escalaTexto", "ultimo", "plano", "objetivo"];
 $("#exportar").onclick = () => {
   const dados = {};
   for (const k of espelho.keys()) dados[k] = espelho.get(k);
