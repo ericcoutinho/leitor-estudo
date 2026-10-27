@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261025042202";
+import { paraFala } from "./texto.js?v=20261026222211";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -328,7 +328,7 @@ function abrirMenu(id, botao) {
   pop.style.top = (embaixo ? r.bottom + 8 : r.top - h - 8) + "px";
 }
 const fecharMenus = () => document.querySelectorAll(".pop").forEach((p) => (p.hidden = true));
-document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btnVoz, #btnVel, #btnMais, #btnPomo, #btnPomoNav, #btnVolume")) fecharMenus(); });
+document.addEventListener("click", (e) => { if (!e.target.closest(".pop, #btnVoz, #btnVel, #btnMais, #btnPomo, #btnPomoNav, #btnVolume, #btnCoresGrifo")) fecharMenus(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") { fecharMenus(); fecharModais(); } });
 
 const VOZES = [["pf_dora", "Dora", "feminina"], ["pm_alex", "Alex", "masculina"], ["pm_santa", "Santa", "masculina"]];
@@ -432,7 +432,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261025042202", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261026222211", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -594,6 +594,7 @@ function montar(t, p = 0) {
   ligarObjetivo();
   $("#barraMarca").hidden = true;
   pintarMarcas();
+  pintarGrifos();
   ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
   $("#topAnt").onclick = () => irTopico(topico - 1);
@@ -693,6 +694,113 @@ $("#fundoSumario").onclick = fecharSumario;
 $("#btnSumarioTopo").onclick = abrirSumario;
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharSumario(); });
 
+// ---------- marca-texto ----------
+// Liga o modo e escolhe a cor uma vez; daí, selecionar o texto já pinta. Os grifos ficam em estudo.grifos
+// como posições (início/fim) no texto do tópico, então sobrevivem a trocar de tópico e reabrir o material.
+const CORES_GRIFO = { amarelo: ["Amarelo", "#ffe95c"], verde: ["Verde", "#9cf29c"], rosa: ["Rosa", "#ff9fd8"], azul: ["Azul", "#94d8ff"], laranja: ["Laranja", "#ffc06e"] };
+const BORRACHA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l9.6-9.6a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 21"/><path d="M22 21H7M5 11l9 9"/></svg>';
+let corGrifo = lembrar("corGrifo", "amarelo"), grifando = lembrar("grifando", false);
+if (corGrifo !== "borracha" && !CORES_GRIFO[corGrifo]) corGrifo = "amarelo";
+const bolinhas = () => Object.entries(CORES_GRIFO).map(([k, [nome, c]]) => `<button class="cor-grifo" data-cor="${k}" style="--c:${c}" role="menuitemradio" aria-label="${nome}" title="${nome}"></button>`).join("") +
+  `<button class="cor-grifo borracha" data-cor="borracha" role="menuitemradio" aria-label="Borracha" title="Borracha: apaga o grifo">${BORRACHA}</button>`;
+$("#coresGrifo").innerHTML = bolinhas();
+$("#coresBarra").innerHTML = bolinhas();
+function mostrarGrifo() {
+  const c = CORES_GRIFO[corGrifo]?.[1];
+  document.documentElement.style.setProperty("--cor-grifo", c || "transparent");
+  $("#btnGrifo").setAttribute("aria-pressed", grifando);
+  $("#btnGrifo").title = grifando ? "Marca-texto ligado: selecione o texto para pintar (clique para desligar)" : "Ligar o marca-texto";
+  document.body.classList.toggle("grifando", grifando);
+  document.querySelectorAll("#coresGrifo .cor-grifo").forEach((b) => b.setAttribute("aria-checked", b.dataset.cor === corGrifo));
+}
+$("#btnGrifo").onclick = () => { grifando = !grifando; guardar("grifando", grifando); mostrarGrifo(); toast(grifando ? "Marca-texto ligado: selecione o texto para pintar" : "Marca-texto desligado"); };
+$("#btnCoresGrifo").onclick = () => abrirMenu("#popGrifo", $("#btnCoresGrifo"));
+$("#coresGrifo").onclick = (e) => {
+  const b = e.target.closest("[data-cor]"); if (!b) return;
+  corGrifo = b.dataset.cor; grifando = true; guardar("corGrifo", corGrifo); guardar("grifando", true); mostrarGrifo(); fecharMenus();
+};
+mostrarGrifo();
+
+// posição de um ponto (nó + deslocamento) contada em caracteres desde o início do texto do tópico
+const textoTopico = () => $(".folha > .texto");
+function posicao(raiz, no, desl) {
+  const r = document.createRange(); r.selectNodeContents(raiz); r.setEnd(no, desl);
+  return r.toString().length;
+}
+// tira os grifos desenhados (volta ao texto puro) e desenha de novo os do tópico aberto
+function pintarGrifos() {
+  const raiz = textoTopico(); if (!raiz || !estudo) return;
+  raiz.querySelectorAll("mark.grifo").forEach((m) => { const p = m.parentNode; m.replaceWith(...m.childNodes); p.normalize(); });
+  const meus = (estudo.grifos || []).filter((g) => g.topico === topico).sort((a, b) => a.ini - b.ini);
+  if (!meus.length) return;
+  // percorre os pedaços de texto e embrulha a parte de cada um que cai dentro de um grifo
+  const nos = []; const w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
+  for (let n, pos = 0; (n = w.nextNode()); pos += n.length) nos.push([n, pos]);
+  for (const [n, ini] of nos.reverse()) {
+    const fim = ini + n.length;
+    for (const g of meus.filter((g) => g.ini < fim && g.fim > ini).reverse()) {
+      const a = Math.max(g.ini, ini) - ini, b = Math.min(g.fim, fim) - ini;
+      if (!n.data.slice(a, b).trim()) continue;
+      const meio = n.splitText(a); meio.splitText(b - a);
+      const m = document.createElement("mark");
+      m.className = "grifo"; m.dataset.cor = g.cor; m.style.setProperty("--c", CORES_GRIFO[g.cor]?.[1] || "#ffe95c");
+      meio.replaceWith(m); m.append(meio);
+    }
+  }
+}
+// pinta (ou apaga, com a borracha) o trecho entre ini e fim; a cor nova vence onde houver outra
+function grifar(ini, fim, cor) {
+  if (fim <= ini) return;
+  const resto = [];
+  for (const g of estudo.grifos || []) {
+    if (g.topico !== topico || g.fim <= ini || g.ini >= fim) { resto.push(g); continue; }
+    if (g.ini < ini) resto.push({ ...g, fim: ini });
+    if (g.fim > fim) resto.push({ ...g, ini: fim });
+  }
+  if (cor !== "borracha") resto.push({ topico, ini, fim, cor });
+  // grifos encostados e da mesma cor viram um só
+  const unidos = [];
+  for (const g of resto.sort((a, b) => a.topico - b.topico || a.ini - b.ini)) {
+    const u = unidos[unidos.length - 1];
+    if (u && u.topico === g.topico && u.cor === g.cor && g.ini <= u.fim) u.fim = Math.max(u.fim, g.fim); else unidos.push({ ...g });
+  }
+  estudo.grifos = unidos;
+  salvarEstudo(estudo);
+  pintarGrifos();
+}
+// a seleção atual dentro do texto do tópico, em posições; null se estiver fora
+function selecaoNoTexto() {
+  const sel = getSelection(), raiz = textoTopico();
+  if (!raiz || !sel.rangeCount || sel.isCollapsed) return null;
+  const r = sel.getRangeAt(0);
+  if (!raiz.contains(r.commonAncestorContainer) && !r.intersectsNode(raiz)) return null;
+  const ini = raiz.contains(r.startContainer) ? posicao(raiz, r.startContainer, r.startOffset) : 0;
+  const fim = raiz.contains(r.endContainer) ? posicao(raiz, r.endContainer, r.endOffset) : raiz.textContent.length;
+  return fim > ini ? { ini, fim } : null;
+}
+// modo ligado: soltar o mouse (ou o dedo) depois de selecionar já pinta
+const pintarSelecao = () => {
+  if (!grifando || !estudo) return;
+  setTimeout(() => {
+    const s = selecaoNoTexto(); if (!s) return;
+    grifar(s.ini, s.fim, corGrifo);
+    getSelection().removeAllRanges();
+    $("#barraMarca").hidden = true;
+  }, 10);
+};
+document.addEventListener("mouseup", (e) => { if (e.target.closest?.(".folha")) pintarSelecao(); });
+document.addEventListener("touchend", (e) => { if (e.target.closest?.(".folha")) setTimeout(pintarSelecao, 350); });
+// modo desligado: as bolinhas da barrinha da seleção pintam e já deixam a cor escolhida
+$("#coresBarra").onmousedown = (e) => e.preventDefault();
+$("#coresBarra").onclick = (e) => {
+  const b = e.target.closest("[data-cor]"); if (!b) return;
+  const s = selecaoNoTexto(); if (!s) return;
+  if (b.dataset.cor !== "borracha") { corGrifo = b.dataset.cor; guardar("corGrifo", corGrifo); mostrarGrifo(); }
+  grifar(s.ini, s.fim, b.dataset.cor);
+  getSelection().removeAllRanges();
+  $("#barraMarca").hidden = true;
+};
+
 // ---------- marcar dúvida ----------
 // Selecionar um trecho da folha mostra a barrinha; a escolha marca as frases e cria um item em "Minhas dúvidas".
 // A IA explica (ou vira flash card) usando o tópico como contexto. Fica salvo em estudo.marcas.
@@ -712,7 +820,7 @@ document.addEventListener("selectionchange", () => {
   const tm = setTimeout(() => {
     const sel = getSelection();
     const barra = $("#barraMarca");
-    if (!estudo || modo !== "ler" || !sel.rangeCount || sel.isCollapsed || sel.toString().trim().length < 3) { barra.hidden = true; return; }
+    if (!estudo || grifando || modo !== "ler" || !sel.rangeCount || sel.isCollapsed || sel.toString().trim().length < 3) { barra.hidden = true; return; }
     const frasesSel = frasesDaSelecao(sel);
     if (!frasesSel.length) { barra.hidden = true; return; }
     selecaoAtual = { texto: sel.toString().trim().replace(/\s+/g, " "), frases: frasesSel.map((f) => f.textContent.trim()) };
@@ -725,7 +833,7 @@ document.addEventListener("selectionchange", () => {
   }, 250);
   selecaoAtual = { ...(selecaoAtual || {}), tm };
 });
-document.querySelectorAll("#barraMarca button").forEach((b) => {
+document.querySelectorAll("#barraMarca button[data-acao]").forEach((b) => {
   b.onmousedown = (e) => e.preventDefault(); // não perder a seleção ao clicar
   b.onclick = () => marcar(b.dataset.acao);
 });

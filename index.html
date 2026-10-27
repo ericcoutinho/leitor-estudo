@@ -596,6 +596,29 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
 .barra-marca:not([hidden]) { animation: aparecer .12s ease, descer .15s ease; }
 .barra-marca button { border: 0; background: none; color: var(--painel); padding: 7px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .barra-marca button:hover { background: color-mix(in srgb, var(--painel) 18%, transparent); }
+/* marca-texto: cores de marca-texto de papelaria; no tema escuro o texto grifado fica escuro para continuar legível */
+.grupo-grifo { display: flex; align-items: stretch; height: 34px; border: 1px solid var(--borda); background: var(--painel); border-radius: 9px; overflow: hidden; }
+.btn-grifo, .btn-cores { border: 0; background: none; color: var(--suave); display: grid; place-items: center; }
+.btn-grifo { position: relative; width: 38px; }
+.btn-grifo svg { width: 18px; height: 18px; }
+.btn-grifo .ponta { position: absolute; left: 9px; right: 9px; bottom: 5px; height: 4px; border-radius: 2px; background: var(--cor-grifo, #ffe95c); }
+.btn-grifo[aria-pressed="true"] { background: color-mix(in srgb, var(--cor-grifo, #ffe95c) 45%, var(--painel)); color: var(--texto); }
+.btn-cores { width: 22px; border-left: 1px solid var(--borda); }
+.btn-cores svg { width: 13px; height: 13px; }
+.btn-grifo:hover, .btn-cores:hover { color: var(--destaque); }
+.pop-grifo { min-width: 0; width: 248px; }
+.cores-grifo { display: flex; gap: 8px; padding: 2px 8px 6px; }
+.cor-grifo { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); display: grid; place-items: center; color: #444; }
+.cor-grifo[aria-checked="true"] { border-color: var(--texto); }
+.cor-grifo.borracha { background: var(--painel); box-shadow: inset 0 0 0 1px var(--borda); color: var(--suave); }
+.cor-grifo svg { width: 16px; height: 16px; }
+.dica-grifo { margin: 4px 8px 6px; font-size: 12px; color: var(--suave); line-height: 1.4; }
+.cores-barra { display: flex; align-items: center; gap: 5px; padding: 0 8px 0 6px; margin-right: 2px; border-right: 1px solid color-mix(in srgb, var(--painel) 25%, transparent); }
+.cores-barra .cor-grifo { width: 20px; height: 20px; border: 0; box-shadow: none; }
+.cores-barra .cor-grifo.borracha { background: transparent; color: var(--painel); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--painel) 50%, transparent); }
+.cores-barra .cor-grifo svg { width: 12px; height: 12px; }
+mark.grifo { background: var(--c); color: #1b1d21; border-radius: 3px; padding: 0 1px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+body.grifando .folha > .texto { cursor: text; }
 .frase.marcada { background: var(--pergunta-fundo); box-shadow: inset 0 -2px 0 var(--pergunta); }
 .frase.marcada.atual { background: var(--destaque-fundo); }
 .frase.marcada.piscar { animation: piscar 1.2s ease 2; }
@@ -703,6 +726,10 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
       <div class="dir">
         <button class="btn-ia so-leitura" id="btnIaTopo" hidden><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg><span class="rotulo-ia">Organizar com IA</span></button>
         <button class="btn-pomo" id="btnPomo" title="Pomodoro" aria-haspopup="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg><span id="pomoMini"></span></button>
+        <div class="grupo-grifo so-leitura">
+          <button class="btn-grifo" id="btnGrifo" aria-pressed="false" title="Marca-texto: ligado, é só selecionar o texto para pintar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg><i class="ponta" id="pontaGrifo"></i></button>
+          <button class="btn-cores" id="btnCoresGrifo" title="Escolher a cor do marca-texto" aria-label="Escolher a cor do marca-texto" aria-haspopup="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
+        </div>
         <button class="btn-duvidas so-leitura" id="btnDuvidas" title="Minhas dúvidas: trechos marcados e explicações da IA"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span id="contaDuvidas">0</span></button>
         <button class="icone so-leitura" id="btnMais" title="Mais opções" aria-label="Mais opções" aria-haspopup="true"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
       </div>
@@ -844,6 +871,7 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
 
 <!-- marcar dúvida: barrinha que aparece ao selecionar um trecho -->
 <div class="barra-marca" id="barraMarca" hidden role="toolbar" aria-label="Marcar trecho">
+  <span class="cores-barra" id="coresBarra"></span>
   <button data-acao="explicar">Explicar melhor</button>
   <button data-acao="exemplo">Dar exemplo</button>
   <button data-acao="simples">Mais simples</button>
@@ -872,6 +900,8 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
 <div class="pop" id="popVoz" hidden role="menu"><h3>Voz</h3><div id="listaVozes"></div></div>
 <div class="pop" id="popVolume" hidden role="dialog" aria-label="Volume" style="min-width:220px"><h3>Volume</h3>
   <div class="linha-volume"><button class="icone" id="mudoPop" aria-label="Mudo"></button><input type="range" id="volumePop" min="0" max="100" step="5" aria-label="Volume"><b id="volumeValor"></b></div></div>
+<div class="pop pop-grifo" id="popGrifo" hidden role="menu"><h3>Marca-texto</h3><div class="cores-grifo" id="coresGrifo"></div>
+  <p class="dica-grifo">Com o marca-texto ligado, é só selecionar o texto que ele pinta. A borracha apaga.</p></div>
 <div class="pop" id="popVel" hidden role="menu"><h3>Velocidade</h3><div id="listaVel"></div></div>
 <div class="pop" id="popMais" hidden role="menu" style="width:300px">
   <h3>Preferências de estudo</h3>
@@ -889,6 +919,6 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261025042202"></script>
+<script type="module" src="app.js?v=20261026222211"></script>
 </body>
 </html>
