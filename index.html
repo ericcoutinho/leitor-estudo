@@ -614,8 +614,9 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
 .cor-grifo svg { width: 16px; height: 16px; }
 .dica-grifo { margin: 4px 8px 6px; font-size: 12px; color: var(--suave); line-height: 1.4; }
 .cores-barra { display: flex; align-items: center; gap: 5px; padding: 0 8px 0 6px; margin-right: 2px; border-right: 1px solid color-mix(in srgb, var(--painel) 25%, transparent); }
-.cores-barra .cor-grifo { width: 20px; height: 20px; border: 0; box-shadow: none; }
-.cores-barra .cor-grifo.borracha { background: transparent; color: var(--painel); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--painel) 50%, transparent); }
+.barra-marca .cores-barra .cor-grifo { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.barra-marca .cores-barra .cor-grifo:hover { transform: scale(1.15); }
+.barra-marca .cores-barra .cor-grifo.borracha { background: transparent; color: var(--painel); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--painel) 50%, transparent); }
 .cores-barra .cor-grifo svg { width: 12px; height: 12px; }
 mark.grifo { background: var(--c); color: #1b1d21; border-radius: 3px; padding: 0 1px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 body.grifando .folha > .texto { cursor: text; }
@@ -919,6 +920,6 @@ body.grifando .folha > .texto { cursor: text; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261026222211"></script>
+<script type="module" src="app.js?v=20261026222408"></script>
 </body>
 </html>
