@@ -210,7 +210,7 @@ h2.titulo { font-size: 28px; letter-spacing: -.02em; margin: 0 0 18px; line-heig
 .apagar { background: none; border: 0; color: var(--suave); font-size: 12px; text-decoration: underline; padding: 0; margin-top: 24px; }
 
 /* ---------- flash cards ---------- */
-body.modo-cartoes .player { visibility: hidden; }
+body.modo-cartoes .player, body.modo-simulado .player { visibility: hidden; }
 .cartoes-topo { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; font-size: 14px; color: var(--suave); }
 .cartoes-topo select { border: 1px solid var(--borda); background: var(--painel); border-radius: 8px; padding: 6px 8px; max-width: 100%; }
 .cartoes-topo label { display: flex; gap: 6px; align-items: center; }
@@ -431,6 +431,48 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
 .objetivo { display: grid; gap: 8px; }
 .objetivo[hidden] { display: none; }
 .objetivo .rot { font-weight: 600; font-size: 14px; }
+/* simulado */
+.sim-tit { margin: 4px 0 0; font-size: 22px; }
+.ajuda-sim { color: var(--suave); margin: 4px 0 0; font-size: 14px; line-height: 1.5; }
+.campo-sim { display: grid; gap: 8px; font-weight: 600; font-size: 14px; }
+.campo-sim select { font: inherit; font-weight: 400; border: 1px solid var(--borda); background: var(--painel); color: var(--texto); border-radius: 8px; padding: 8px; max-width: 100%; }
+.campo-check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.sim-config .ajuda { color: var(--suave); }
+.sim-hist { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--suave); }
+.sim-hist b { padding: 2px 8px; border-radius: 99px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.sim-hist b.baixo { background: color-mix(in srgb, var(--erro) 15%, transparent); color: var(--erro); }
+.questao .enunciado { margin: 0; font: calc(18px * var(--escala-texto, 1))/1.55 "Source Serif 4", Georgia, serif; }
+.alts { display: grid; gap: 8px; }
+.alt { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; border: 2px solid var(--borda); background: var(--painel); color: var(--texto);
+  border-radius: 12px; padding: 10px 12px; font-size: calc(15px * var(--escala-texto, 1)); line-height: 1.45; }
+.alt:hover:not(:disabled) { border-color: var(--destaque); }
+.alt:disabled { cursor: default; }
+.alt .letra { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--fundo); border: 1px solid var(--borda); }
+.alt.marcada { border-color: var(--destaque); background: var(--destaque-fundo); }
+.alt.marcada .letra { background: var(--destaque); border-color: var(--destaque); color: var(--sobre-destaque); }
+.alt.certa { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--painel)); }
+.alt.certa .letra { background: var(--ok); border-color: var(--ok); color: var(--painel); }
+.alt.errada { border-color: var(--erro); background: color-mix(in srgb, var(--erro) 12%, var(--painel)); animation: tremer .35s; }
+.alt.errada .letra { background: var(--erro); border-color: var(--erro); color: var(--painel); }
+.alt.apagada { opacity: .55; }
+.sim-coment { padding: 12px 14px; border-radius: 12px; background: var(--fundo); border-left: 4px solid var(--ok); }
+.sim-coment.nao { border-left-color: var(--erro); }
+.sim-coment p { margin: 6px 0 0; }
+.sim-nav { align-items: center; }
+.sim-nav .link { margin: 0 auto 0 0; color: var(--suave); font-weight: 500; font-size: 13px; }
+.sim-mapa { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.sim-mapa button { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--borda); background: var(--painel); color: var(--suave); font-weight: 600; font-size: 13px; }
+.sim-mapa button.feita { background: var(--destaque-fundo); border-color: var(--destaque); color: var(--destaque-forte); }
+.sim-mapa button.agora { outline: 2px solid var(--destaque); outline-offset: 1px; }
+.sim-topicos { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-weight: 400; }
+.sim-topicos li { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
+.sim-topicos li .barra-dominio { grid-column: 1 / -1; margin: 0; }
+.sim-topicos li.fraco b { color: var(--erro); }
+.sim-topicos li.fraco .barra-dominio i { background: var(--erro); }
+.sim-gabarito { margin-top: 16px; }
+.sim-gerando { justify-items: center; text-align: center; padding: 40px 24px; }
+.sim-gerando small { color: var(--suave); }
+@media (max-width: 520px) { .abas { display: flex; width: 100%; } .aba { flex: 1 1 auto; padding: 7px 6px; font-size: 13px; white-space: nowrap; } }
 .chips-obj { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips-obj button { border: 1px solid var(--borda); background: var(--painel); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 500; color: var(--texto); }
 .chips-obj button:hover { border-color: var(--destaque); }
@@ -920,6 +962,6 @@ body.grifando .folha > .texto { cursor: text; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261026222408"></script>
+<script type="module" src="app.js?v=20261027212038"></script>
 </body>
 </html>

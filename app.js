@@ -1,7 +1,7 @@
 // Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261026222408";
+import { paraFala } from "./texto.js?v=20261027212038";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -10,7 +10,7 @@ const PAUSA = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7
 // Materiais, progresso e cartões ficam no IndexedDB (aguenta centenas de MB; o localStorage só ~5 MB, e dois ou três
 // PDFs grandes estouravam). Por cima dele há um espelho em memória: o resto do código lê e grava na hora, e a gravação
 // no banco acontece em segundo plano. Ajustes pequenos (voz, tema, pomodoro…) continuam no localStorage.
-const NO_BANCO = /^(estudo:|estudos$|pos:|caixas:)/;
+const NO_BANCO = /^(estudo:|estudos$|pos:|caixas:|simulado:)/;
 const espelho = new Map();
 let banco = null;
 const pedido = (r) => new Promise((ok, falha) => { r.onsuccess = () => ok(r.result); r.onerror = () => falha(r.error); });
@@ -248,7 +248,7 @@ const andamento = new Map(); // id → { n, total, texto } da organização em c
 function mostrarPreparo(mudar = {}) {
   parar(); estudo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   preparo = { ...preparo, ...mudar };
-  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado");
   $("#navBiblioteca").classList.remove("ativo"); $("#linhaProgresso").style.width = "0";
   const a = preparo.id ? andamento.get(preparo.id) : null;
   const pct = a ? Math.round(((a.n - 1) / a.total) * 100) : 0;
@@ -391,7 +391,7 @@ const ICONE_TIPO = {
 function mostrarBiblioteca() {
   parar(); estudo = null; modo = "ler"; preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   $("#tituloTopo").textContent = "Biblioteca";
-  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "guia-passo");
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado", "guia-passo");
   $("#navBiblioteca").classList.add("ativo"); $("#linhaProgresso").style.width = "0";
   const lista = indice();
   const soltar = `<label class="soltar" id="soltarBiblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
@@ -425,14 +425,14 @@ function mostrarBiblioteca() {
   }));
 }
 function apagarMaterial(id) {
-  for (const k of ["estudo:", "pos:", "caixas:"]) apagarChave(k + id);
+  for (const k of ["estudo:", "pos:", "caixas:", "simulado:"]) apagarChave(k + id);
   guardar("estudos", indice().filter((e) => e.id !== id));
 }
 // a lista só aparece na tela da biblioteca; nas outras telas não há o que atualizar
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261026222408", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261027212038", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -502,7 +502,7 @@ function abrir(id) {
   if (!estudo) return;
   preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   try { localStorage.setItem("ultimo", JSON.stringify(id)); } catch {}
-  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "na-biblioteca", "guia-passo");
+  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "modo-simulado", "na-biblioteca", "guia-passo");
   $("#navBiblioteca").classList.remove("ativo"); $("#tituloMaterial").textContent = estudo.titulo;
   const salvo = lembrar("pos:" + id, { topico: 0, pos: 0 });
   montar(salvo.topico, salvo.pos);
@@ -554,6 +554,7 @@ async function organizarDepois() {
 
 function montar(t, p = 0) {
   if (modo === "cartoes" && estudo.topicos.length) return montarCartoes(); // material atualizado durante os cartões
+  if (modo === "simulado" && estudo.topicos.length) return montarSimulado();
   if (modo === "guiado" && estudo.topicos.length) {
     if (t !== topico) guia = { etapa: 0, itens: itensRecordar(estudo.topicos[Math.max(0, Math.min(t, estudo.topicos.length - 1))], t) };
     if (guia.etapa !== 2) { topico = Math.max(0, Math.min(t, estudo.topicos.length - 1)); return montarGuiado(); }
@@ -1082,6 +1083,7 @@ $("#fraseProx").onclick = pular(() => ir(pos + 1));
 document.onkeydown = (e) => {
   if (["SELECT", "INPUT"].includes(e.target.tagName)) return;
   if (modo === "guiado" && guia.etapa !== 2) return;
+  if (modo === "simulado") return teclaSimulado(e);
   if (modo === "cartoes") { // espaço vira; 1/← não sabia; 2/→ sabia
     if (e.code === "Space") { e.preventDefault(); $("#virar")?.click(); }
     if (["Digit1", "ArrowLeft"].includes(e.code)) $("#naoSabia")?.click();
@@ -1110,15 +1112,17 @@ function abas() {
   const n = baralho(estudo).length;
   return `<div class="abas" role="tablist"><button class="aba ${modo === "ler" ? "ativo" : ""}" data-modo="ler" role="tab">Ler</button>` +
     `<button class="aba ${modo === "guiado" ? "ativo" : ""}" data-modo="guiado" role="tab">Estudo guiado</button>` +
-    `<button class="aba ${modo === "cartoes" ? "ativo" : ""}" data-modo="cartoes" role="tab">Flash cards${n ? ` (${n})` : ""}</button></div>`;
+    `<button class="aba ${modo === "cartoes" ? "ativo" : ""}" data-modo="cartoes" role="tab">Flash cards${n ? ` (${n})` : ""}</button>` +
+    `<button class="aba ${modo === "simulado" ? "ativo" : ""}" data-modo="simulado" role="tab">Simulado</button></div>`;
 }
 function ligarAbas() {
   document.querySelectorAll(".aba").forEach((b) => (b.onclick = () => {
     if (b.dataset.modo === modo) return;
-    parar(); calarGuia(); modo = b.dataset.modo;
+    parar(); calarGuia(); calarSimulado(); modo = b.dataset.modo;
     document.body.classList.toggle("modo-cartoes", modo === "cartoes");
+    document.body.classList.toggle("modo-simulado", modo === "simulado");
     document.body.classList.remove("guia-passo");
-    modo === "cartoes" ? novaRodada() : modo === "guiado" ? iniciarGuiado() : montar(topico, pos);
+    modo === "cartoes" ? novaRodada() : modo === "guiado" ? iniciarGuiado() : modo === "simulado" ? iniciarSimulado() : montar(topico, pos);
   }));
 }
 
@@ -1349,6 +1353,12 @@ function calcularPlano(pl, hoje = hojeISO()) {
     }
   };
   lidos.forEach(({ e, i }) => marcarRevisoes(e, i, e.lidosEm[i]));
+  // tópico fraco no simulado: revisão dos flash cards dele no dia marcado (as questões erradas viraram cartões)
+  mats.forEach((e) => Object.entries(e.revisarEm || {}).forEach(([i, d]) => {
+    const k = `${e.id}|${i}|sim${d}`, dia = d < hoje ? hoje : d;
+    if (feito(k) || d >= pl.data || !agenda[dia] || dia === revGeral || agenda[dia].revisao.some((r) => r.e.id === e.id && r.i === +i)) return;
+    agenda[dia].revisao.push({ e, i: +i, k }); agenda[dia].min += 3;
+  }));
   const proximo = pendentes[0] || null; // para "Quer adiantar?"
   // espalha a leitura até a data (não enche o primeiro dia): a meta de cada dia é o que falta ÷ os dias de leitura que restam
   const diasLeitura = dias.filter((d) => d !== revGeral && agenda[d].cap > 0);
@@ -1387,7 +1397,7 @@ const horas = (min) => (min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${mi
 
 function mostrarPlano(editar = false) {
   parar(); estudo = null; preparo = null; naTelaPlano = true; modo = "ler";
-  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes");
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado");
   $("#navBiblioteca").classList.remove("ativo"); $("#navPlano").classList.add("ativo");
   $("#tituloTopo").textContent = "Meu plano"; $("#linhaProgresso").style.width = "0";
   const pl = lembrar("plano", null);
@@ -1442,7 +1452,7 @@ function mostrarPlano(editar = false) {
     const [tipo, id, is] = b.dataset.check.split("|"), e = lembrar("estudo:" + id, null);
     if (!e) return;
     if (tipo === "ler") is.split(",").forEach((i) => marcarLido(e, +i));
-    else { pl.feitos ||= {}; is.split(",").forEach((i) => ESPACOS.forEach((n) => { if (somaDias(e.lidosEm?.[i] || hoje, n) <= hoje) pl.feitos[`${id}|${i}|${n}`] = true; })); guardar("plano", pl); }
+    else { pl.feitos ||= {}; is.split(",").forEach((i) => { ESPACOS.forEach((n) => { if (somaDias(e.lidosEm?.[i] || hoje, n) <= hoje) pl.feitos[`${id}|${i}|${n}`] = true; }); simFeito(pl, e, i, hoje); }); guardar("plano", pl); }
     b.closest(".tarefa").classList.add("concluindo");
     setTimeout(() => mostrarPlano(), 380);
   }));
@@ -1519,7 +1529,13 @@ function revisoesFeitas() {
   if (!pl || !estudo || !pl.materiais.includes(estudo.id)) return;
   const hoje = hojeISO(); pl.feitos ||= {};
   Object.entries(estudo.lidosEm || {}).forEach(([i, d]) => ESPACOS.forEach((n) => { if (somaDias(d, n) <= hoje) pl.feitos[`${estudo.id}|${i}|${n}`] = true; }));
+  Object.keys(estudo.revisarEm || {}).forEach((i) => simFeito(pl, estudo, i, hoje));
   guardar("plano", pl);
+}
+// revisão pedida pelo simulado que já venceu conta como feita
+function simFeito(pl, e, i, hoje) {
+  const d = e.revisarEm?.[i];
+  if (d && d <= hoje) pl.feitos[`${e.id}|${i}|sim${d}`] = true;
 }
 
 
@@ -1642,6 +1658,311 @@ function montarGuiado() {
   if (falar) falarGuia(falar);
   $(".conteudo").scrollTop = 0;
 }
+
+// ---------- simulado (questões de prova com correção) ----------
+// A IA cria questões de múltipla escolha (A a E) e de certo ou errado (estilo Cebraspe) a partir dos tópicos. Elas
+// ficam guardadas por material ("simulado:<id>") e voltam nos próximos simulados, primeiro as que a pessoa errou.
+// No fim: nota por tópico e gabarito comentado; as erradas viram flash cards e os tópicos fracos ganham revisão no plano.
+const INSTRUCAO_SIMULADO = `Crie questões de prova (estilo concurso e vestibular brasileiro) a partir do material abaixo, em português do Brasil.
+Para cada tópico indicado ("## número. título"), crie exatamente as quantidades pedidas em QUANTIDADES:
+- "multipla": enunciado e 5 alternativas, com UMA só correta. As erradas devem ser plausíveis (as pegadinhas que
+  costumam cair: número trocado, exceção esquecida, conceito parecido). Nada de "todas as anteriores" ou "nenhuma".
+  Não escreva a letra no começo da alternativa.
+- "ce": uma afirmação para julgar como Certo (C) ou Errado (E), estilo Cebraspe. Faça cerca de metade erradas, com erro sutil.
+Cobre só o que está no material. Varie entre definições, números, datas, listas, exceções e aplicação em um caso.
+Para cada questão, um comentário de 1 a 3 frases explicando a resposta (na múltipla, diga também por que a pegadinha principal está errada).
+Responda SOMENTE com JSON válido: {"questoes":[{"topico":0,"tipo":"multipla","enunciado":"...","alternativas":["...","...","...","...","..."],"correta":0,"comentario":"..."},{"topico":0,"tipo":"ce","enunciado":"...","correta":"C","comentario":"..."}]}
+(topico = número do tópico; na múltipla, correta = posição da alternativa certa, começando em 0).`;
+const LETRAS = "ABCDE";
+const FRACO = 0.6; // acerto abaixo de 60% no tópico: pede revisão no plano
+let sim = { fase: "config" }, simTopico = "todos", falaSim = 0;
+let ajusteSim = { qtd: 10, tipo: "misto", correcao: "fim", ...lembrar("ajusteSimulado", {}) };
+const bancoSim = (id = estudo.id) => lembrar("simulado:" + id, { questoes: [], historico: [] });
+const tiposDe = (tipo) => (tipo === "misto" ? ["multipla", "ce"] : [tipo]);
+const topicosSim = () => (simTopico === "todos" ? estudo.topicos.map((_, i) => i) : [+simTopico]);
+const letra = (q, k) => (q.tipo === "ce" ? (k ? "Errado" : "Certo") : `${LETRAS[k]}) ${q.alternativas[k]}`);
+function embaralhar(lista) {
+  const a = [...lista];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+// confere o que a IA mandou e embaralha as alternativas (ela tende a pôr a certa nas primeiras letras)
+function normalizarQuestao(q, nTopicos) {
+  const enunciado = String(q?.enunciado || "").trim(), comentario = String(q?.comentario || "").trim();
+  if (!enunciado) return null;
+  const base = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), t: Math.max(0, Math.min(nTopicos - 1, +q.topico || 0)), enunciado, comentario };
+  if (q.tipo === "ce") {
+    const c = String(q.correta).trim().toUpperCase()[0];
+    return c === "C" || c === "E" ? { ...base, tipo: "ce", alternativas: ["Certo", "Errado"], correta: c === "C" ? 0 : 1 } : null;
+  }
+  const alts = Array.isArray(q.alternativas) ? q.alternativas.map((a) => String(a).replace(/^\s*[A-Ea-e][).:-]\s+/, "").trim()) : [];
+  const c = typeof q.correta === "string" && /^[A-E]$/i.test(q.correta.trim()) ? LETRAS.indexOf(q.correta.trim().toUpperCase()) : +q.correta;
+  if (alts.length < 4 || alts.length > 5 || alts.some((a) => !a) || !(c >= 0 && c < alts.length)) return null;
+  const ordem = embaralhar(alts.map((_, i) => i));
+  return { ...base, tipo: "multipla", alternativas: ordem.map((i) => alts[i]), correta: ordem.indexOf(c) };
+}
+
+// quantas questões de cada tipo faltam no banco, por tópico, para um simulado de `qtd` (novas = só as nunca respondidas)
+function faltando(b, qtd, tipo, novas) {
+  const ts = topicosSim(), porTopico = Math.ceil(qtd / ts.length), f = {};
+  for (const t of ts) {
+    const m = t % 2 ? Math.floor(porTopico / 2) : Math.ceil(porTopico / 2); // no misto, alterna qual tipo leva a sobra
+    const quer = { multipla: tipo === "ce" ? 0 : tipo === "multipla" ? porTopico : m, ce: tipo === "multipla" ? 0 : tipo === "ce" ? porTopico : porTopico - m };
+    const tem = (tp) => b.questoes.filter((q) => q.t === t && q.tipo === tp && (!novas || !q.vistas)).length;
+    const x = { multipla: Math.max(0, quer.multipla - tem("multipla")), ce: Math.max(0, quer.ce - tem("ce")) };
+    if (x.multipla + x.ce) f[t] = x;
+  }
+  return f;
+}
+
+async function gerarQuestoes(faltam, chave, aviso) {
+  const e = estudo, b = bancoSim(e.id);
+  const grupos = []; let texto = "", pedidos = [];
+  for (const [i, f] of Object.entries(faltam)) {
+    const t = e.topicos[i], bloco = `## ${i}. ${t.titulo}\n${t.texto}\n\n`;
+    if (texto && texto.length + bloco.length > 20000) { grupos.push([texto, pedidos]); texto = ""; pedidos = []; }
+    texto += bloco; pedidos.push(`tópico ${i}: ${f.multipla} de múltipla escolha e ${f.ce} de certo ou errado`);
+  }
+  if (texto) grupos.push([texto, pedidos]);
+  for (let g = 0; g < grupos.length; g++) {
+    const av = (t) => aviso(grupos.length > 1 ? `Parte ${g + 1} de ${grupos.length}: ${t}` : t);
+    av("criando as questões…");
+    const o = await gemini(`${INSTRUCAO_SIMULADO}\n\nQUANTIDADES:\n${grupos[g][1].join("\n")}\n\nMATERIAL:\n${grupos[g][0]}`, chave, av,
+      (o) => Array.isArray(o.questoes) && o.questoes.length);
+    const novas = o.questoes.map((q) => normalizarQuestao(q, e.topicos.length)).filter((q) => q && !b.questoes.some((x) => x.enunciado === q.enunciado));
+    b.questoes.push(...novas);
+    guardar("simulado:" + e.id, b);
+  }
+}
+
+// escolhe as questões: primeiro as que errou da última vez, depois as nunca vistas; um tópico de cada vez, para cobrir a matéria
+function sortear(b, qtd, tipo, novas) {
+  const ts = new Set(topicosSim()), tipos = tiposDe(tipo), filas = new Map();
+  const prio = (q) => (novas ? (q.vistas ? 1 : 0) : q.ultima === false ? 0 : !q.vistas ? 1 : 2 + (q.acertos || 0)) + Math.random();
+  b.questoes.filter((q) => ts.has(q.t) && tipos.includes(q.tipo)).map((q) => [prio(q), q]).sort((a, z) => a[0] - z[0])
+    .forEach(([, q]) => { if (!filas.has(q.t)) filas.set(q.t, []); filas.get(q.t).push(q); });
+  const ordem = embaralhar([...filas.values()]), escolhidas = [];
+  while (escolhidas.length < qtd && ordem.some((f) => f.length))
+    for (const f of ordem) if (f.length && escolhidas.length < qtd) escolhidas.push(f.shift());
+  return embaralhar(escolhidas);
+}
+
+function iniciarSimulado() {
+  modo = "simulado"; document.body.classList.add("modo-simulado");
+  if (sim.id !== estudo.id) { sim = { id: estudo.id, fase: "config" }; simTopico = "todos"; }
+  montarSimulado();
+}
+
+async function comecarSimulado(novas = false) {
+  const e = estudo, chave = $("#chave").value.trim();
+  const falta = faltando(bancoSim(), ajusteSim.qtd, ajusteSim.tipo, novas);
+  if (Object.keys(falta).length) {
+    const tem = sortear(bancoSim(), ajusteSim.qtd, ajusteSim.tipo, novas).length;
+    if (!chave && (novas || !tem)) return pedirChave(); // sem chave dá para usar as questões que já existem
+    if (chave) {
+      sim = { id: e.id, fase: "gerando", aviso: "Criando as questões…" };
+      montarSimulado();
+      try {
+        await gerarQuestoes(falta, chave, (t) => { sim.aviso = t; const el = $("#simAviso"); if (el && sim.id === e.id) el.textContent = t; });
+      } catch (err) {
+        if (sim.id === e.id) sim = { id: e.id, fase: "config", erro: "Não consegui criar as questões: " + err.message };
+        if (estudo?.id === e.id && modo === "simulado") montarSimulado();
+        return;
+      }
+      if (estudo?.id !== e.id || modo !== "simulado") { if (sim.id === e.id) sim = { id: e.id, fase: "config" }; return; }
+    }
+  }
+  const qs = sortear(bancoSim(), ajusteSim.qtd, ajusteSim.tipo, novas);
+  if (!qs.length) { sim = { id: e.id, fase: "config", erro: "Não há questões para essa escolha. Tente outro tipo ou tópico." }; return montarSimulado(); }
+  sim = { id: e.id, fase: "prova", itens: qs.map((q) => ({ q, resp: null })), atual: 0, inicio: Date.now(), correcao: ajusteSim.correcao };
+  pomoAoEstudar();
+  montarSimulado();
+  falarSim(textoQuestao(qs[0]));
+}
+
+function telaConfigSim() {
+  const b = bancoSim(), ts = new Set(topicosSim()), tipos = tiposDe(ajusteSim.tipo);
+  const prontas = b.questoes.filter((q) => ts.has(q.t) && tipos.includes(q.tipo)).length;
+  const hist = b.historico.slice(-5);
+  const pct = (h) => Math.round((h.acertos / h.total) * 100);
+  const chips = (campo, opcoes) => `<div class="chips-obj" role="radiogroup">${opcoes.map(([v, n]) =>
+    `<button data-sim="${campo}|${v}" class="${String(ajusteSim[campo]) === String(v) ? "ativo" : ""}" role="radio" aria-checked="${String(ajusteSim[campo]) === String(v)}">${n}</button>`).join("")}</div>`;
+  return `<div class="guia-cartao sim-config entra">
+    <div><span class="guia-rot">Simulado</span><h2 class="sim-tit">Teste-se como na prova</h2>
+      <p class="ajuda-sim">A IA cria questões a partir deste material. No fim você vê a nota por tópico e o gabarito comentado, e o que errar vira flash card.</p></div>
+    <label class="campo-sim">Tópicos<select id="simTopico"><option value="todos">Todos os tópicos</option>${estudo.topicos.map((t, i) =>
+      `<option value="${i}" ${String(i) === simTopico ? "selected" : ""}>${i + 1}. ${esc(t.titulo)}</option>`).join("")}</select></label>
+    <div class="campo-sim">Quantidade de questões${chips("qtd", [[5, "5"], [10, "10"], [20, "20"], [30, "30"]])}</div>
+    <div class="campo-sim">Tipo${chips("tipo", [["misto", "Misto"], ["multipla", "Múltipla escolha"], ["ce", "Certo ou errado"]])}</div>
+    <div class="campo-sim">Correção${chips("correcao", [["fim", "No fim, como na prova"], ["hora", "A cada questão"]])}</div>
+    <label class="campo-check"><input type="checkbox" id="lerSim" ${lembrar("lerSimulado", false) ? "checked" : ""}> Ler as questões em voz alta</label>
+    <small class="ajuda">${prontas ? `${prontas} ${prontas === 1 ? "questão pronta" : "questões prontas"} para essa escolha; se faltar, a IA cria o resto.` : "Na primeira vez a IA cria as questões (leva alguns segundos)."}</small>
+    ${hist.length ? `<div class="sim-hist"><span>Últimos simulados</span>${hist.map((h) => `<b class="${h.acertos / h.total < FRACO ? "baixo" : ""}" title="${h.acertos} de ${h.total} em ${dataBR(h.data)}">${pct(h)}%</b>`).join("")}</div>` : ""}
+    ${sim.erro ? `<div class="alerta-plano">${esc(sim.erro)}</div>` : ""}
+    <div class="guia-acoes">${prontas ? '<button class="sec" id="simNovas" title="Pede à IA questões que você ainda não viu">Só questões novas</button>' : ""}<button class="pri" id="simComecar">Começar simulado</button></div></div>`;
+}
+
+function telaProva() {
+  const n = sim.itens.length, it = sim.itens[sim.atual], q = it.q, hora = sim.correcao === "hora";
+  const respondidas = sim.itens.filter((x) => x.resp != null).length;
+  const mostrou = hora && it.resp != null, acertou = it.resp === q.correta;
+  const alts = q.alternativas.map((a, k) => {
+    const cls = mostrou ? (k === q.correta ? "certa" : it.resp === k ? "errada" : "apagada") : it.resp === k ? "marcada" : "";
+    return `<button class="alt ${cls}" data-alt="${k}" role="radio" aria-checked="${it.resp === k}" ${mostrou ? "disabled" : ""}>
+      <span class="letra">${q.tipo === "ce" ? "CE"[k] : LETRAS[k]}</span><span>${esc(a)}</span></button>`;
+  }).join("");
+  const ultima = sim.atual === n - 1;
+  const seguir = hora
+    ? (mostrou ? `<button class="pri" id="${ultima ? "simEntregar" : "simProx"}">${ultima ? "Ver resultado" : "Próxima →"}</button>` : "")
+    : ultima ? '<button class="pri" id="simEntregar">Entregar simulado</button>' : `<button class="pri" id="simProx">${it.resp != null ? "Próxima →" : "Pular →"}</button>`;
+  return `<div class="placar"><span>Questão ${sim.atual + 1} de ${n} · ${respondidas} respondida${respondidas === 1 ? "" : "s"}</span><span id="simRelogio">⏱ ${mmss(Date.now() - sim.inicio)}</span></div>
+    <div class="barra-dominio"><i style="width:${Math.round((respondidas / n) * 100)}%"></i></div>
+    <div class="guia-cartao questao">
+      <span class="guia-rot">${q.tipo === "ce" ? "Certo ou errado" : "Múltipla escolha"} · ${esc(estudo.topicos[q.t]?.titulo || "")}</span>
+      <p class="enunciado">${esc(q.enunciado)}</p>
+      <div class="alts" role="radiogroup" aria-label="Alternativas">${alts}</div>
+      ${mostrou ? `<div class="sim-coment ${acertou ? "sim" : "nao"}"><b>${acertou ? "✓ Você acertou" : `✗ A resposta é ${esc(letra(q, q.correta))}`}</b><p>${esc(q.comentario)}</p></div>` : ""}
+      <div class="guia-acoes sim-nav"><button class="link" id="simSair">Sair do simulado</button>
+        ${!hora && sim.atual ? '<button class="sec" id="simAnt">← Anterior</button>' : ""}${seguir}</div>
+    </div>
+    ${hora ? "" : `<div class="sim-mapa" aria-label="Ir para a questão">${sim.itens.map((x, k) =>
+      `<button data-ir="${k}" class="${k === sim.atual ? "agora" : ""} ${x.resp != null ? "feita" : ""}" aria-label="Questão ${k + 1}${x.resp != null ? ", respondida" : ""}">${k + 1}</button>`).join("")}</div>`}`;
+}
+
+function telaFimSim() {
+  const n = sim.itens.length, pct = Math.round((sim.acertos / n) * 100), antes = bancoSim().historico.at(-2);
+  const emoji = pct >= 80 ? "🎉" : pct >= FRACO * 100 ? "👍" : "💪";
+  const erradas = sim.itens.filter((x) => x.resp !== x.q.correta);
+  const noPlano = lembrar("plano", null)?.materiais.includes(estudo.id);
+  const topicos = Object.entries(sim.por).sort(([, a], [, z]) => a[0] / a[1] - z[0] / z[1]).map(([t, [a, m]]) =>
+    `<li class="${a / m < FRACO ? "fraco" : ""}"><span>${+t + 1}. ${esc(estudo.topicos[t]?.titulo || "")}</span><b>${a} de ${m}</b>
+      <div class="barra-dominio"><i style="width:${Math.round((a / m) * 100)}%"></i></div></li>`).join("");
+  const gabarito = sim.itens.map((it, k) => {
+    const ok = it.resp === it.q.correta;
+    return `<div class="conferir ${ok ? "sim" : "nao"}"><span class="selo-c">${ok ? "✓" : "✗"}</span><div>
+      <b>${k + 1}. ${esc(it.q.enunciado)}</b>
+      <small>${it.resp == null ? "Sem resposta" : `Você marcou: ${esc(letra(it.q, it.resp))}`}${ok ? "" : ` · Certa: ${esc(letra(it.q, it.q.correta))}`}</small>
+      <p>${esc(it.q.comentario)}</p></div></div>`;
+  }).join("");
+  return `<div class="guia-cartao entra">
+      <div class="placar-guia"><span>${emoji}</span><div><b>Você acertou ${sim.acertos} de ${n} (${pct}%)</b>
+        <small>Em ${horas(Math.max(1, Math.round(sim.seg / 60)))}${antes ? ` · no simulado anterior: ${Math.round((antes.acertos / antes.total) * 100)}%` : ""}</small></div></div>
+      ${erradas.length ? `<p class="ajuda-sim">${erradas.length === 1 ? "A questão que você errou virou flash card" : `As ${erradas.length} questões que você errou viraram flash cards`} e aparece${erradas.length === 1 ? "" : "m"} primeiro na próxima rodada.${sim.fracos.length && noPlano ? " Os tópicos abaixo de 60% ganharam uma revisão amanhã no seu plano." : ""}</p>` : ""}
+      <div class="campo-sim">Por tópico<ul class="sim-topicos">${topicos}</ul></div>
+      <div class="guia-acoes">
+        ${erradas.length ? '<button class="sec" id="simRefazer">Refazer as erradas</button><button class="sec" id="simCartoes">Revisar com flash cards</button>' : ""}
+        ${sim.fracos.length ? `<button class="sec" id="simLer">Ler o tópico ${sim.fracos[0] + 1}</button>` : ""}
+        <button class="pri" id="simNovo">Novo simulado</button></div></div>
+    <div class="guia-cartao sim-gabarito"><span class="guia-rot">Gabarito comentado</span>${gabarito}</div>`;
+}
+
+function montarSimulado() {
+  document.body.classList.add("modo-simulado");
+  let corpo;
+  if (sim.fase === "gerando") corpo = `<div class="guia-cartao sim-gerando"><span class="pensando"></span><b>Montando o seu simulado</b><small id="simAviso">${esc(sim.aviso || "")}</small></div>`;
+  else if (sim.fase === "prova") corpo = telaProva();
+  else if (sim.fase === "fim") corpo = telaFimSim();
+  else corpo = telaConfigSim();
+  $("#coluna").innerHTML = faixaIa() + abas() + corpo;
+  ligarAbas();
+  $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
+  const clique = (id, f) => $(id) && ($(id).onclick = f);
+  if (sim.fase === "config") {
+    $("#simTopico").onchange = (ev) => { simTopico = ev.target.value; montarSimulado(); };
+    document.querySelectorAll("[data-sim]").forEach((b) => (b.onclick = () => {
+      const [campo, v] = b.dataset.sim.split("|");
+      ajusteSim[campo] = campo === "qtd" ? +v : v; guardar("ajusteSimulado", ajusteSim); montarSimulado();
+    }));
+    $("#lerSim").onchange = (ev) => guardar("lerSimulado", ev.target.checked);
+    clique("#simComecar", () => comecarSimulado());
+    clique("#simNovas", () => comecarSimulado(true));
+  } else if (sim.fase === "prova") {
+    const it = sim.itens[sim.atual];
+    document.querySelectorAll("[data-alt]").forEach((b) => (b.onclick = () => {
+      if (sim.correcao === "hora" && it.resp != null) return;
+      it.resp = +b.dataset.alt;
+      montarSimulado();
+      if (sim.correcao === "hora") falarSim(`${it.resp === it.q.correta ? "Certo!" : `Errado. A resposta é ${letra(it.q, it.q.correta)}.`} ${it.q.comentario}`);
+    }));
+    const ir = (k) => { sim.atual = k; montarSimulado(); falarSim(textoQuestao(sim.itens[k].q)); $(".conteudo").scrollTop = 0; };
+    clique("#simProx", () => ir(sim.atual + 1));
+    clique("#simAnt", () => ir(sim.atual - 1));
+    document.querySelectorAll("[data-ir]").forEach((b) => (b.onclick = () => ir(+b.dataset.ir)));
+    clique("#simEntregar", () => {
+      const b = $("#simEntregar"), vazias = sim.itens.filter((x) => x.resp == null).length;
+      if (vazias && !b.dataset.ok) { b.dataset.ok = 1; b.textContent = `${vazias} sem resposta. Toque de novo para entregar`; return; }
+      entregarSimulado();
+    });
+    clique("#simSair", () => {
+      const b = $("#simSair");
+      if (!b.dataset.ok) { b.dataset.ok = 1; b.textContent = "Toque de novo para sair (este simulado não conta)"; return; }
+      calarSimulado(); sim = { id: estudo.id, fase: "config" }; montarSimulado();
+    });
+  } else if (sim.fase === "fim") {
+    clique("#simRefazer", () => {
+      sim = { id: estudo.id, fase: "prova", itens: embaralhar(sim.itens.filter((x) => x.resp !== x.q.correta)).map((x) => ({ q: x.q, resp: null })), atual: 0, inicio: Date.now(), correcao: sim.correcao };
+      montarSimulado(); falarSim(textoQuestao(sim.itens[0].q));
+    });
+    const sair = (novo, f) => () => { modo = novo; document.body.classList.remove("modo-simulado"); document.body.classList.toggle("modo-cartoes", novo === "cartoes"); f(); };
+    clique("#simCartoes", sair("cartoes", () => { filtroTopico = "todos"; novaRodada(); }));
+    clique("#simLer", sair("ler", () => montar(sim.fracos[0], 0)));
+    clique("#simNovo", () => { sim = { id: estudo.id, fase: "config" }; montarSimulado(); });
+  }
+}
+
+// corrige: atualiza o banco de questões, as erradas viram flash cards (caixa 0) e os tópicos fracos ganham revisão amanhã
+function entregarSimulado() {
+  calarSimulado();
+  const e = estudo, b = bancoSim(), cx = caixas(), hoje = hojeISO(), por = {};
+  let acertos = 0;
+  for (const it of sim.itens) {
+    const q = it.q, ok = it.resp === q.correta;
+    if (ok) acertos++;
+    (por[q.t] ||= [0, 0])[1]++; if (ok) por[q.t][0]++;
+    const guardada = b.questoes.find((x) => x.id === q.id);
+    if (guardada) { guardada.vistas = (guardada.vistas || 0) + 1; guardada.acertos = (guardada.acertos || 0) + (ok ? 1 : 0); guardada.ultima = ok; }
+    const tp = e.topicos[q.t];
+    if (ok || !tp) continue;
+    const frente = q.tipo === "ce" ? `Certo ou errado? ${q.enunciado}` : q.enunciado;
+    if (!(tp.cartoes || []).some((c) => c.frente === frente))
+      (tp.cartoes ||= []).push({ frente, verso: `${q.tipo === "ce" ? (q.correta ? "Errado" : "Certo") : q.alternativas[q.correta]}. ${q.comentario}`.trim() });
+    cx[q.t + "|" + frente] = 0;
+  }
+  const fracos = Object.entries(por).filter(([, [a, n]]) => a / n < FRACO).sort(([, a], [, z]) => a[0] / a[1] - z[0] / z[1]).map(([t]) => +t);
+  fracos.forEach((t) => ((e.revisarEm ||= {})[t] = somaDias(hoje, 1)));
+  const seg = Math.round((Date.now() - sim.inicio) / 1000);
+  b.historico = [...b.historico, { data: hoje, acertos, total: sim.itens.length, seg, por }].slice(-30);
+  guardar("simulado:" + e.id, b); guardar("caixas:" + e.id, cx); salvarEstudo(e);
+  sim = { ...sim, fase: "fim", acertos, por, fracos, seg };
+  montarSimulado();
+  $(".conteudo").scrollTop = 0;
+  falarSim(`Você acertou ${acertos} de ${sim.itens.length}.`);
+}
+
+const textoQuestao = (q) => (q.tipo === "ce" ? `Certo ou errado? ${q.enunciado}` : `${q.enunciado} ${q.alternativas.map((a, k) => `${LETRAS[k]}: ${a}.`).join(" ")}`);
+function falarSim(texto) {
+  const minha = ++falaSim;
+  audio.pause();
+  if (!lembrar("lerSimulado", false)) return;
+  sintetizar(texto).then((url) => {
+    if (minha !== falaSim || modo !== "simulado") return;
+    audio.onended = audio.onpause = null; audio.src = url; audio.play().catch(() => {});
+  }).catch(() => {});
+}
+function calarSimulado() { falaSim++; if (modo === "simulado") audio.pause(); }
+
+// teclado: A–E ou 1–5 marcam (C/E no certo ou errado), Enter ou → avança, ← volta
+function teclaSimulado(e) {
+  if (sim.fase !== "prova" || e.target.tagName === "TEXTAREA" || (e.target.tagName === "BUTTON" && ["Enter", "Space"].includes(e.code))) return;
+  const q = sim.itens[sim.atual].q;
+  const k = q.tipo === "ce" ? { KeyC: 0, KeyE: 1, Digit1: 0, Digit2: 1 }[e.code]
+    : /^Key[A-E]$/.test(e.code) ? LETRAS.indexOf(e.code[3]) : /^Digit[1-5]$/.test(e.code) ? +e.code[5] - 1 : undefined;
+  if (k != null && k < q.alternativas.length) return document.querySelector(`[data-alt="${k}"]`)?.click();
+  if (e.code === "Enter" || e.code === "ArrowRight") { e.preventDefault(); ($("#simProx") || $("#simEntregar"))?.click(); }
+  if (e.code === "ArrowLeft") $("#simAnt")?.click();
+}
+setInterval(() => { if (modo === "simulado" && sim.fase === "prova") { const r = $("#simRelogio"); if (r) r.textContent = "⏱ " + mmss(Date.now() - sim.inicio); } }, 1000);
 
 mostrarVoz();
 aplicarVolume(); // aqui embaixo: o elemento de áudio só existe depois do bloco da leitura
