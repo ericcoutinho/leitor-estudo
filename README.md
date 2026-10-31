@@ -12,3 +12,5 @@ Anexe o material da prova (PDF, Word ou texto). A IA organiza em tópicos, resum
 - **Privacidade:** nada vai para servidor próprio. Os materiais ficam no navegador (localStorage). O texto só sai do aparelho para o Gemini, quando a organização com IA está ligada.
 
 Arquivos: `index.html` (tela), `app.js` (leitura e organização), `voz-worker.js` (voz), `texto.js` (preparo do texto para a fala).
+
+Identidade visual (manual da marca 1.0): logos oficiais em `marca/` (principal no tema claro, negativa no escuro; só o símbolo com o menu recolhido e no celular), fonte Inter em `fontes/` (licença OFL), cores Azul Saberia #0053FA, Marinho #01152D, Azul-luz #7BA8FF e Névoa #F4F7FC.
