@@ -151,6 +151,34 @@ body.na-biblioteca .linha-progresso { visibility: hidden; }
 .mudou .progresso { background: var(--painel); }
 .mudou .progresso i { width: 35%; animation: vai 1.2s ease-in-out infinite; }
 
+/* endereço antigo: tela cheia obrigatória, por cima de tudo, até os materiais irem para o novo endereço */
+.mudou-tela { position: fixed; inset: 0; z-index: 2147483000; background: var(--fundo); color: var(--texto); overflow: auto; overscroll-behavior: contain;
+  display: grid; place-items: center; padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); }
+.mudou-tela[hidden] { display: none; }
+body.travado { overflow: hidden; }
+.mt-cartao { width: min(560px, 100%); display: grid; gap: 18px; justify-items: center; text-align: center; padding: 36px 28px 30px; border-radius: 22px;
+  background: var(--painel); border: 1px solid var(--borda); box-shadow: var(--sombra); }
+.mt-logo img { display: block; width: 190px; height: auto; }
+.mt-logo .escuro { display: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .mt-logo .claro { display: none; } :root:not([data-theme="light"]) .mt-logo .escuro { display: block; } }
+:root[data-theme="dark"] .mt-logo .claro { display: none; } :root[data-theme="dark"] .mt-logo .escuro { display: block; }
+.mt-icone { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: var(--destaque-fundo); color: var(--destaque); }
+.mt-icone svg { width: 32px; height: 32px; }
+.mt-cartao.ok .mt-icone { color: var(--ok); }
+.mt-cartao.erro .mt-icone { background: var(--pergunta-fundo); color: var(--pergunta); }
+.mt-cartao h1 { margin: 0; font-size: clamp(22px, 5.4vw, 28px); line-height: 1.2; letter-spacing: -.01em; }
+.mt-endereco { display: inline-block; padding: 6px 14px; border-radius: 999px; background: var(--destaque-fundo); color: var(--destaque-forte); font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.mt-cartao p { margin: 0; color: var(--suave); font-size: 15px; line-height: 1.55; max-width: 46ch; }
+.mt-cartao ol { margin: 0; padding-left: 22px; text-align: left; color: var(--suave); font-size: 15px; line-height: 1.55; display: grid; gap: 4px; }
+.mt-acoes { display: grid; gap: 10px; width: 100%; margin-top: 4px; }
+.mt-acoes button { width: 100%; border: 0; border-radius: 12px; padding: 14px 18px; font-weight: 700; font-size: 16px; background: var(--destaque); color: var(--sobre-destaque); }
+.mt-acoes button:hover { background: var(--destaque-forte); }
+.mt-acoes button.sec { background: var(--painel); color: var(--texto); border: 1px solid var(--borda); font-weight: 600; }
+.mt-acoes button.sec:hover { border-color: var(--destaque); }
+.mt-acoes button:focus-visible { outline: 3px solid color-mix(in srgb, var(--destaque) 45%, transparent); outline-offset: 2px; }
+.mt-cartao .progresso { width: 100%; background: var(--destaque-fundo); }
+.mt-cartao .progresso i { width: 35%; animation: vai 1.2s ease-in-out infinite; }
+
 /* ---------- biblioteca ---------- */
 .continuar-card { display: flex; align-items: center; gap: 14px; width: 100%; margin-bottom: 18px; padding: 14px 16px; border-radius: 16px; text-align: left;
   border: 1px solid transparent; background: var(--destaque); color: var(--sobre-destaque); box-shadow: var(--sombra); transition: transform .15s; }
@@ -948,6 +976,8 @@ body.grifando .folha > .texto { cursor: text; }
 </div>
 
 <!-- aviso rápido (toast) -->
+<!-- endereço antigo: aviso obrigatório (montado pelo app.js) -->
+<div class="mudou-tela" id="mudouTela" hidden role="dialog" aria-modal="true" aria-labelledby="tMudou"></div>
 <div class="toast" id="toast" hidden role="status" aria-live="polite"><span id="toastTexto"></span><span class="toast-botoes" id="toastBotoes"></span></div>
 
 <!-- marcar dúvida: barrinha que aparece ao selecionar um trecho -->
@@ -1000,6 +1030,6 @@ body.grifando .folha > .texto { cursor: text; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261030225201"></script>
+<script type="module" src="app.js?v=20261030230821"></script>
 </body>
 </html>

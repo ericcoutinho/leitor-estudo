@@ -1,7 +1,7 @@
 // saber.ia — leitor de estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261030225201";
+import { paraFala } from "./texto.js?v=20261030230821";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -441,7 +441,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261030225201", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261030230821", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -1976,7 +1976,7 @@ setInterval(() => { if (modo === "simulado" && sim.fase === "prova") { const r =
 mostrarVoz();
 aplicarVolume(); // aqui embaixo: o elemento de áudio só existe depois do bloco da leitura
 mostrarBiblioteca();
-if (lembrar("voz", null) === null && location.hash !== "#migrar") boasVindas(); // vindo do endereço antigo: a voz chega junto
+if (lembrar("voz", null) === null && !location.hash.startsWith("#migrar")) boasVindas(); // vindo do endereço antigo: a voz chega junto
 function boasVindas() {
   let escolha = vozAtual;
   const desenhar = () => {
@@ -2340,11 +2340,14 @@ function mesclarRecebido({ dados, lista }) {
     return (JSON.parse(dados["pos:" + id] || "{}")?.pct || 0) > (lembrar("pos:" + id, {}).pct || 0);
   };
   const atual = (k) => (banco ? espelho.get(k) : localStorage.getItem(k)) ?? null;
-  let novos = 0, atualizados = 0, iguais = 0;
+  let novos = 0, atualizados = 0, iguais = 0, apagados = 0;
+  let jaVieram; try { jaVieram = new Set(JSON.parse(localStorage.getItem("vindosDoAntigo") || "[]")); } catch { jaVieram = new Set(); }
   const resumos = new Map(atuais.map((e) => [e.id, e])), carimbosFinais = { ...meus };
   for (const r of lista) {
     if (!dados["estudo:" + r.id]) continue;
     const existe = atual("estudo:" + r.id) != null;
+    if (!existe && jaVieram.has(r.id)) { apagados++; continue; } // já veio antes e foi apagado aqui: não ressuscita
+    jaVieram.add(r.id);
     if (existe && PARTES.every((p) => (dados[p + r.id] ?? null) === atual(p + r.id))) { iguais++; resumos.set(r.id, resumos.get(r.id) || r); continue; }
     const ganha = !existe || vence(r.id);
     // ganhou: fica a versão que chegou; perdeu: só completa o que faltar aqui
@@ -2355,17 +2358,57 @@ function mesclarRecebido({ dados, lista }) {
   }
   // a lista: os daqui na ordem de sempre, e os que chegaram agora logo depois
   guardar("estudos", [...atuais.map((e) => resumos.get(e.id)), ...[...resumos.values()].filter((e) => !atuais.some((a) => a.id === e.id))]);
-  try { localStorage.setItem("alteradoEm", JSON.stringify(carimbosFinais)); } catch {}
+  try { localStorage.setItem("alteradoEm", JSON.stringify(carimbosFinais)); localStorage.setItem("vindosDoAntigo", JSON.stringify([...jaVieram])); } catch {}
   // preferências, plano e chave da IA: só entram se ainda não existirem aqui (não sobrescreve o que já foi ajustado)
   for (const k of [...PREFS_BACKUP, "chave"]) if (dados[k] != null && localStorage.getItem(k) == null) try { localStorage.setItem(k, dados[k]); } catch {}
   $("#chave").value = lembrar("chave", "");
   vozAtual = lembrar("voz", vozAtual); velAtual = VELS.includes(lembrar("vel", velAtual)) ? lembrar("vel", velAtual) : velAtual;
   aplicarTema(); aplicarLetra(); aplicarVolume(); $("#animarFolha").checked = lembrar("animarFolha", true); mostrarVoz();
   if (!estudo) mostrarBiblioteca();
-  return { total: lista.length, novos, atualizados, iguais };
+  return { total: novos + atualizados + iguais, novos, atualizados, iguais, apagados };
 }
 
-// lado NOVO: aberto pelo antigo com #migrar
+
+// pacote da migração direta: backup → JSON → gzip → base64url, no fragmento da URL (#migrar=…). O fragmento não vai
+// ao servidor nem aparece nos logs; o novo apaga da barra e do histórico assim que lê.
+const LIMITE_URL = 1_500_000; // os navegadores aceitam ~2 MB de URL; acima disso, vai pelo caminho da outra aba
+async function empacotar(obj) {
+  const gz = new Uint8Array(await new Response(new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+  let bin = ""; for (let i = 0; i < gz.length; i += 0x8000) bin += String.fromCharCode.apply(null, gz.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function desempacotar(txt) {
+  const b64 = txt.replace(/-/g, "+").replace(/_/g, "/"), bin = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text());
+}
+
+// lado NOVO: guarda o que chegou e mostra na tela o que veio (assim nada entra escondido)
+function aplicarRecebido(backup) {
+  const b = lerBackupRecebido(backup);
+  if (!b) throw new Error("os dados do endereço antigo não vieram certos");
+  const r = mesclarRecebido(b);
+  const detalhe = [r.novos && `${r.novos} ${r.novos === 1 ? "novo" : "novos"}`, r.atualizados && `${r.atualizados} ${r.atualizados === 1 ? "atualizado" : "atualizados"}`,
+    r.iguais && `${r.iguais} já ${r.iguais === 1 ? "estava" : "estavam"} aqui`].filter(Boolean).join(", ");
+  avisoMudou("ok", ICONE_OK, `<b>${r.total === 1 ? "1 material veio" : `${r.total} materiais vieram`} do endereço antigo${detalhe ? ` (${detalhe})` : ""}.</b>
+    <p>O saber.ia agora fica em ${esc(NOVO_NOME)}: use este endereço daqui em diante. Flash cards, progresso e plano vieram junto; chave da IA e ajustes que você já tinha aqui não foram trocados.</p>
+    <div class="acoes"><button id="mudouFechar">Ok, continuar</button></div>`, { mudouFechar: () => { $("#mudou").hidden = true; if (!estudo) mostrarBiblioteca(); } });
+  if (lembrar("voz", null) === null) boasVindas(); // o antigo nem tinha voz escolhida: pergunta agora
+  return r;
+}
+const falhaRecebido = (msg) => avisoMudou("erro", ICONE_ATENCAO, `<b>Não deu para trazer os materiais do endereço antigo.</b>
+  <p>${esc(msg)}. Caminho manual: no endereço antigo, baixe o backup; aqui, Configurações → Importar backup.</p>`);
+
+// (a) direto pela URL: #migrar=<pacote>
+async function receberPelaUrl(pacote) {
+  history.replaceState(null, "", location.pathname + location.search); // some da barra e do histórico na hora
+  // só aceita vindo do endereço antigo; referrer vazio (política do navegador) não bloqueia, as outras proteções seguem
+  let de = ""; try { de = document.referrer ? new URL(document.referrer).origin : ""; } catch {}
+  if (de && de !== END.antigo) return;
+  try { aplicarRecebido(await desempacotar(pacote)); } catch (err) { falhaRecebido(err.message || String(err)); }
+}
+
+// (b) pela outra aba (pacote grande demais para a URL): aberto pelo antigo com #migrar
 function receberMigracao() {
   history.replaceState(null, "", location.pathname + location.search);
   if (!window.opener) return;
@@ -2375,52 +2418,77 @@ function receberMigracao() {
     if (ev.origin !== END.antigo || ev.source !== window.opener || ev.data?.tipo !== "saberia-dados" || recebido) return;
     recebido = true;
     const responder = (msg) => { try { ev.source.postMessage(msg, END.antigo); } catch {} };
-    const b = lerBackupRecebido(ev.data.backup);
-    if (!b) {
-      avisoMudou("erro", ICONE_ATENCAO, `<b>Os dados do endereço antigo não vieram certos.</b><p>Use o caminho manual: lá, em Configurações → Exportar backup; aqui, Configurações → Importar backup.</p>`);
-      return responder({ tipo: "saberia-erro" });
-    }
-    try {
-      const r = mesclarRecebido(b);
-      const detalhe = [r.novos && `${r.novos} ${r.novos === 1 ? "novo" : "novos"}`, r.atualizados && `${r.atualizados} ${r.atualizados === 1 ? "atualizado" : "atualizados"}`,
-        r.iguais && `${r.iguais} já ${r.iguais === 1 ? "estava" : "estavam"} aqui`].filter(Boolean).join(", ");
-      avisoMudou("ok", ICONE_OK, `<b>${r.total === 1 ? "Chegou 1 material" : `Chegaram ${r.total} materiais`} do endereço antigo${detalhe ? ` (${detalhe})` : ""}.</b>
-        <p>A partir de agora use este endereço, ${esc(NOVO_NOME)}. Flash cards, progresso, plano e a chave da IA vieram junto.</p>
-        <div class="acoes"><button id="mudouFechar">Ver minha biblioteca</button></div>`, { mudouFechar: () => { $("#mudou").hidden = true; if (!estudo) mostrarBiblioteca(); } });
-      responder({ tipo: "saberia-ok", materiais: r.total });
-      if (lembrar("voz", null) === null) boasVindas(); // o antigo nem tinha voz escolhida: pergunta agora
-    } catch (err) {
-      avisoMudou("erro", ICONE_ATENCAO, `<b>Não deu para guardar os materiais aqui.</b><p>${esc(err.message || err)}</p>`);
-      responder({ tipo: "saberia-erro" });
-    }
+    try { const r = aplicarRecebido(ev.data.backup); responder({ tipo: "saberia-ok", materiais: r.total }); }
+    catch (err) { falhaRecebido(err.message || String(err)); responder({ tipo: "saberia-erro" }); }
   });
   // avisa o antigo que está pronto (repete algumas vezes, caso a primeira mensagem se perca)
   const avisar = () => { if (recebido || tentativas++ > 10 || !window.opener) return; try { window.opener.postMessage({ tipo: "saberia-pronto" }, END.antigo); } catch {} setTimeout(avisar, 1500); };
   avisar();
 }
 
-// lado ANTIGO
-function avisoEnderecoAntigo() {
-  const params = new URLSearchParams(location.search);
-  if (params.has("ficar")) { try { localStorage.removeItem("migrado"); } catch {} } // ?ficar: cancela o redirecionamento
-  else if (localStorage.getItem("migrado")) return location.replace(NOVO_URL);
+// lado ANTIGO: nunca mais é usado. Abriu → leva os dados pela URL e vai para o novo sozinho. Se o pacote for grande
+// demais para a URL, fica uma tela cheia obrigatória com um único caminho: levar pela outra aba (ou backup manual).
+function travarAntigo() {
+  for (const el of document.body.children) if (el.id !== "mudouTela") el.inert = true;
+  document.body.classList.add("travado");
+  try { parar(); } catch {}
+  $("#modalVoz").hidden = true; $("#toast").hidden = true;
+  if ("mediaSession" in navigator) for (const a of ["play", "pause", "previoustrack", "nexttrack"]) try { navigator.mediaSession.setActionHandler(a, null); } catch {}
+  // nenhum atalho do app reage: só Tab/Enter/Espaço dentro da tela de aviso seguem (para usar os botões dela)
+  const segurar = (e) => {
+    const dentro = $("#mudouTela").contains(e.target);
+    e.stopImmediatePropagation();
+    if (!(dentro && ["Tab", "Enter", " "].includes(e.key))) e.preventDefault();
+  };
+  for (const t of ["keydown", "keyup", "keypress"]) addEventListener(t, segurar, true);
+  // o que aparecer depois no body (aviso, menu…) já nasce travado
+  new MutationObserver(() => { for (const el of document.body.children) if (el.id !== "mudouTela" && !el.inert) el.inert = true; }).observe(document.body, { childList: true });
+}
+function telaAntiga(tipo, icone, html, ligar = {}) {
+  const el = $("#mudouTela");
+  el.innerHTML = `<div class="mt-cartao ${tipo}"><span class="mt-logo"><img class="claro" src="marca/logo-principal.svg" alt="saber.ia" width="190" height="31"><img class="escuro" src="marca/logo-negativa.svg" alt="saber.ia" width="190" height="31"></span>
+    <span class="mt-icone">${icone}</span>${html}</div>`;
+  el.hidden = false;
+  for (const [id, f] of Object.entries(ligar)) { const b = el.querySelector("#" + id); if (b) b.onclick = f; }
+  el.querySelector("button")?.focus();
+}
+async function avisoEnderecoAntigo() {
+  if (localStorage.getItem("migrado")) return location.replace(NOVO_URL); // já levou pela outra aba: vai direto
+  travarAntigo();
+  const irNovo = () => location.replace(NOVO_URL);
   const n = indice().length, temAlgo = n || localStorage.getItem("chave") || localStorage.getItem("plano");
-  if (!temAlgo) {
-    if (!params.has("ficar")) return location.replace(NOVO_URL); // nada guardado aqui: vai direto
-    return avisoMudou("", ICONE_MUDOU, `<b>O saber.ia mudou de endereço: ${esc(NOVO_NOME)}</b><p>Use o novo endereço daqui em diante.</p>
-      <div class="acoes"><a class="botao" href="${NOVO_URL}">Abrir o novo endereço</a></div>`);
+  if (!temAlgo) return irNovo(); // nada guardado aqui
+  telaAntiga("", ICONE_MUDOU, `<h1 id="tMudou">Levando seus materiais para o novo endereço…</h1><div class="progresso"><i></i></div>`);
+  try {
+    const url = NOVO_URL + "#migrar=" + (await empacotar(montarBackup(true)));
+    if (url.length <= LIMITE_URL) return location.replace(url);
+  } catch {} // navegador sem compressão: vai pela outra aba
+
+  const titulo = `<h1 id="tMudou">O saber.ia mudou de endereço</h1><span class="mt-endereco">${esc(NOVO_NOME)}</span>`;
+  const oQue = n === 1 ? "Seu material está guardado" : n ? `Seus ${n} materiais estão guardados` : "Seu plano e seus ajustes estão guardados";
+  const inicial = () => telaAntiga("", ICONE_MUDOU, `${titulo}
+    <p>${oQue} neste navegador, no endereço antigo. Para continuar estudando, leve tudo para o novo endereço: flash cards, progresso, plano e a chave da IA vão junto.</p>
+    <div class="mt-acoes"><button id="mtLevar">Levar meus materiais para o saber.ia</button></div>`, { mtLevar: levar });
+  const manual = (motivo) => telaAntiga("erro", ICONE_ATENCAO, `<h1 id="tMudou">${motivo}</h1>
+    <p>Tente de novo (se o navegador avisar que bloqueou uma janela, permita para este site). Ou leve à mão:</p>
+    <ol><li>Toque em <b>Baixar backup</b> (um arquivo .json).</li><li>No novo endereço, abra <b>Configurações → Importar backup</b> e escolha o arquivo.</li><li>Coloque a chave da IA de novo, em <b>Chave da IA</b>.</li></ol>
+    <div class="mt-acoes"><button id="mtLevar">Tentar de novo</button><button class="sec" id="mtBaixar">Baixar backup</button></div>`,
+    { mtLevar: levar, mtBaixar: baixouBackup });
+  function baixouBackup() {
+    baixarBackup();
+    telaAntiga("ok", ICONE_OK, `<h1 id="tMudou">Backup baixado</h1><span class="mt-endereco">${esc(NOVO_NOME)}</span>
+      <p>Agora, no novo endereço, importe o arquivo em <b>Configurações → Importar backup</b>. Depois coloque a chave da IA em <b>Chave da IA</b>.</p>
+      <div class="mt-acoes"><button id="mtIr">Ir para o novo endereço importar</button><button class="sec" id="mtBaixar">Baixar de novo</button><button class="sec" id="mtLevar">Tentar levar automaticamente</button></div>`,
+      { mtIr: irNovo, mtBaixar: baixouBackup, mtLevar: levar });
   }
-  const manual = (motivo) => avisoMudou("erro", ICONE_ATENCAO, `<b>${motivo}</b>
-    <p>Tente de novo (se o navegador avisar que bloqueou uma janela, permita para este site). Ou faça à mão: baixe o backup aqui; depois, no novo endereço, abra Configurações → Importar backup e escolha o arquivo. A chave da IA você coloca de novo lá, em Chave da IA.</p>
-    <div class="acoes"><button id="mudouLevar">Tentar de novo</button><button class="sec" id="mudouBaixar">Baixar backup</button><a href="${NOVO_URL}" target="_blank" rel="noopener">Abrir o novo endereço</a></div>`,
-    { mudouLevar: levar, mudouBaixar: baixarBackup });
   let ouvinte = null, prazo = 0;
   function levar() {
     if (ouvinte) removeEventListener("message", ouvinte);
     clearTimeout(prazo);
     const janela = window.open(NOVO_URL + "#migrar", "_blank");
-    if (!janela) return manual("O navegador bloqueou a abertura do novo endereço.");
-    avisoMudou("", ICONE_MUDOU, `<b>Levando seus materiais para ${esc(NOVO_NOME)}…</b><p>O novo endereço abriu em outra aba. Não feche esta aba até aparecer “Pronto”.</p><div class="progresso"><i></i></div>`);
+    if (!janela) return manual("O navegador bloqueou a abertura do novo endereço");
+    telaAntiga("", ICONE_MUDOU, `<h1 id="tMudou">Levando seus materiais…</h1><span class="mt-endereco">${esc(NOVO_NOME)}</span>
+      <p>O novo endereço abriu em outra aba. Não feche esta aba até aparecer “Pronto”.</p><div class="progresso"><i></i></div>`);
     let enviado = false;
     ouvinte = (ev) => {
       if (ev.origin !== END.novo || ev.source !== janela) return; // só o novo endereço, e só a aba que abrimos
@@ -2431,21 +2499,26 @@ function avisoEnderecoAntigo() {
         clearTimeout(prazo); removeEventListener("message", ouvinte); ouvinte = null;
         try { localStorage.setItem("migrado", new Date().toISOString()); } catch {}
         const m = Number(ev.data.materiais) || 0;
-        avisoMudou("ok", ICONE_OK, `<b>Pronto! ${nMateriais(m)} ${m === 1 ? "levado" : "levados"} para ${esc(NOVO_NOME)}.</b>
-          <p>Daqui em diante, este endereço abre o novo direto. Nada foi apagado daqui.</p>
-          <div class="acoes"><a class="botao" href="${NOVO_URL}">Ir para o novo endereço</a></div>`);
+        telaAntiga("ok", ICONE_OK, `<h1 id="tMudou">Pronto! ${nMateriais(m)} ${m === 1 ? "levado" : "levados"}</h1><span class="mt-endereco">${esc(NOVO_NOME)}</span>
+          <p>Continue estudando no novo endereço. Levando você para lá…</p><div class="mt-acoes"><button id="mtIr">Ir agora para o saber.ia</button></div>`, { mtIr: irNovo });
+        try { janela.focus(); } catch {}
+        setTimeout(irNovo, 2500); // esta aba também vai para o novo endereço
       } else if (ev.data?.tipo === "saberia-erro") {
         clearTimeout(prazo); removeEventListener("message", ouvinte); ouvinte = null;
-        manual("O novo endereço não conseguiu receber os materiais.");
+        manual("O novo endereço não conseguiu receber os materiais");
       }
     };
     addEventListener("message", ouvinte);
-    prazo = setTimeout(() => { removeEventListener("message", ouvinte); ouvinte = null; manual("O novo endereço não respondeu."); }, 20000);
+    // ~20 s sem resposta → caminho manual. Aba em segundo plano pode atrasar o relógio: confere também ao voltar para ela
+    const inicio = Date.now(), meu = ouvinte;
+    const desistir = () => { if (ouvinte !== meu) return; clearTimeout(prazo); removeEventListener("message", meu); ouvinte = null; manual("O novo endereço não respondeu"); };
+    prazo = setTimeout(desistir, 20000);
+    const aoVoltar = () => { if (ouvinte !== meu) return removeEventListener("visibilitychange", aoVoltar); if (!document.hidden && Date.now() - inicio > 20000) desistir(); };
+    addEventListener("visibilitychange", aoVoltar);
   }
-  avisoMudou("", ICONE_MUDOU, `<b>O saber.ia mudou de endereço: ${esc(NOVO_NOME)}</b>
-    <p>${n === 1 ? "Seu material está guardado neste navegador, neste endereço." : n ? `Seus ${n} materiais estão guardados neste navegador, neste endereço.` : "Seu plano e seus ajustes estão guardados neste navegador, neste endereço."} Leve tudo para o novo em 1 clique: flash cards, progresso, plano e a chave da IA vão junto.</p>
-    <div class="acoes"><button id="mudouLevar">Levar meus materiais</button><a href="${NOVO_URL}">Só abrir o novo endereço</a></div>`, { mudouLevar: levar });
+  inicial();
 }
 
 if (location.origin === END.antigo) avisoEnderecoAntigo();
+else if (location.origin === END.novo && location.hash.startsWith("#migrar=")) receberPelaUrl(location.hash.slice(8));
 else if (location.origin === END.novo && location.hash === "#migrar") receberMigracao();
