@@ -132,6 +132,25 @@ body.na-biblioteca .linha-progresso { visibility: hidden; }
 .voz-aviso.indeterminado .progresso i { width: 35% !important; animation: vai 1.2s ease-in-out infinite; }
 @keyframes vai { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 
+/* aviso de mudança de endereço (antigo → saberia.regra32.tec.br) e recebimento dos materiais no novo */
+.mudou { display: flex; gap: 14px; align-items: flex-start; max-width: 820px; margin: 0 auto 18px; padding: 16px 18px; border-radius: 14px;
+  background: var(--destaque-fundo); border: 1px solid color-mix(in srgb, var(--destaque) 35%, var(--borda)); }
+.mudou[hidden] { display: none; }
+.mudou > svg { width: 26px; height: 26px; color: var(--destaque); margin-top: 1px; flex: none; }
+.mudou > div { flex: 1; display: grid; gap: 6px; min-width: 0; }
+.mudou b { font-size: 16px; overflow-wrap: anywhere; }
+.mudou p { margin: 0; color: var(--suave); font-size: 14px; line-height: 1.45; }
+.mudou .acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 6px; }
+.mudou .acoes button, .mudou a.botao { border: 0; background: var(--destaque); color: var(--sobre-destaque); border-radius: 10px; padding: 9px 16px; font-weight: 600; font-size: 14px; text-decoration: none; }
+.mudou .acoes button:hover, .mudou a.botao:hover { background: var(--destaque-forte); }
+.mudou .acoes button.sec { background: var(--painel); color: var(--texto); border: 1px solid var(--borda); }
+.mudou .acoes a:not(.botao) { color: var(--destaque); font-weight: 600; font-size: 14px; }
+.mudou.ok > svg { color: var(--ok); }
+.mudou.erro { background: var(--pergunta-fundo); border-color: var(--borda); }
+.mudou.erro > svg { color: var(--pergunta); }
+.mudou .progresso { background: var(--painel); }
+.mudou .progresso i { width: 35%; animation: vai 1.2s ease-in-out infinite; }
+
 /* ---------- biblioteca ---------- */
 .continuar-card { display: flex; align-items: center; gap: 14px; width: 100%; margin-bottom: 18px; padding: 14px 16px; border-radius: 16px; text-align: left;
   border: 1px solid transparent; background: var(--destaque); color: var(--sobre-destaque); box-shadow: var(--sombra); transition: transform .15s; }
@@ -798,6 +817,7 @@ body.grifando .folha > .texto { cursor: text; }
     <div class="linha-progresso"><i id="linhaProgresso"></i></div>
     <div class="estado" id="estado" role="status" aria-live="polite"></div>
     <div class="conteudo">
+      <div class="mudou" id="mudou" role="status" aria-live="polite" hidden></div>
       <div class="voz-aviso" id="vozAviso" role="status" aria-live="polite" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 10l5 5 5-5M5 21h14"/></svg>
         <div><b></b><small></small><div class="progresso"><i></i></div></div>
@@ -980,6 +1000,6 @@ body.grifando .folha > .texto { cursor: text; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261030223821"></script>
+<script type="module" src="app.js?v=20261030225201"></script>
 </body>
 </html>
