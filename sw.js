@@ -1,4 +1,4 @@
-// Service worker: deixa o Leitor de Estudo instalável e abrindo sem internet (os materiais já salvos).
+// Service worker: deixa o saber.ia instalável e abrindo sem internet (os materiais já salvos).
 // Página: rede primeiro (pega a versão nova), cache como reserva. Arquivos com ?v=, bibliotecas do CDN, fontes e
 // amostras: cache primeiro (não mudam). A IA e o modelo da voz passam direto (a biblioteca da voz já guarda o modelo).
 const CACHE = "leitor-v1";

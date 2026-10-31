@@ -1,6 +1,6 @@
 {
-  "name": "Leitor de Estudo",
-  "short_name": "Leitor",
+  "name": "saber.ia",
+  "short_name": "saber.ia",
   "description": "Anexe o material da prova: a IA organiza em tópicos, resumo, perguntas e flash cards, e uma voz lê para você.",
   "lang": "pt-BR",
   "start_url": "./",

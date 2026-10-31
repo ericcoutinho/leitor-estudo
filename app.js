@@ -1,7 +1,7 @@
-// Leitor de Estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
+// saber.ia — leitor de estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261027212114";
+import { paraFala } from "./texto.js?v=20261030220840";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -432,7 +432,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261027212114", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261030220840", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -2164,7 +2164,7 @@ desenharPomo();
 function sessaoMidia() {
   if (!("mediaSession" in navigator) || !estudo) return;
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: estudo.topicos[topico]?.titulo || estudo.titulo, artist: estudo.titulo, album: "Leitor de Estudo",
+    title: estudo.topicos[topico]?.titulo || estudo.titulo, artist: estudo.titulo, album: "saber.ia",
     artwork: [{ src: "icone-192.png", sizes: "192x192", type: "image/png" }, { src: "icone-512.png", sizes: "512x512", type: "image/png" }],
   });
   navigator.mediaSession.playbackState = "playing";
@@ -2241,7 +2241,7 @@ $("#importar").onchange = async (ev) => {
   if (!f) return;
   try {
     const b = JSON.parse(await f.text());
-    if (b.app !== "leitor-estudo" || !b.dados) throw new Error("este arquivo não é um backup do Leitor de Estudo");
+    if (b.app !== "leitor-estudo" || !b.dados) throw new Error("este arquivo não é um backup do saber.ia");
     const atuais = indice(), vindos = JSON.parse(b.dados.estudos || "[]");
     for (const [k, v] of Object.entries(b.dados)) {
       if (k === "estudos") continue;
@@ -2260,7 +2260,7 @@ async function mostrarEspaco() {
 // ---------- instalar como app (PWA): funciona sem internet para o que já está salvo ----------
 let pedidoInstalar = null;
 addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); pedidoInstalar = e; textoInstalar(); });
-addEventListener("appinstalled", () => { pedidoInstalar = null; textoInstalar(); toast("Leitor de Estudo instalado! Ele aparece junto com os seus apps.", [], 5000); });
+addEventListener("appinstalled", () => { pedidoInstalar = null; textoInstalar(); toast("saber.ia instalado! Ele aparece junto com os seus apps.", [], 5000); });
 function textoInstalar() {
   const instalado = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
