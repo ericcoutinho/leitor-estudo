@@ -9,7 +9,8 @@ Anexe o material da prova (PDF, Word ou texto). A IA organiza em tópicos, resum
 - **Voz:** Kokoro (pf_dora, pm_alex, pm_santa) rodando no próprio navegador. Usa WebGPU quando disponível e o processador nos outros casos. Na primeira vez baixa uns 300 MB, que ficam guardados.
 - **IA:** Gemini, com a chave grátis de cada pessoa (https://aistudio.google.com/apikey). A chave fica salva só no navegador de quem usa. Sem chave, o material é lido como está.
 - **Texto para a voz:** números por extenso ("2,4 milhões" → "dois vírgula quatro milhões"), abreviações ("mg/L", "nº") e termos em inglês aportuguesados só no áudio (`texto.js`).
-- **Privacidade:** nada vai para servidor próprio. Os materiais ficam no navegador (localStorage). O texto só sai do aparelho para o Gemini, quando a organização com IA está ligada.
+- **Privacidade:** o conteúdo dos materiais não vai para servidor próprio. Os materiais ficam no navegador (localStorage). O texto só sai do aparelho para o Gemini, quando a organização com IA está ligada.
+- **Estatísticas anônimas de uso** (sem cookies, sem conteúdo dos seus materiais): Umami próprio em umami.regra32.tec.br, só no endereço saberia.regra32.tec.br. Vão só nomes de eventos com valores genéricos (ex.: `modo {aba: flashcards}`, `simulado_fim {nota_faixa: 40-70}`); nunca título, texto, nome de arquivo, chave ou id de material, e a página é registrada sem `?busca` e sem `#fragmento`. Desligar: Configurações → Privacidade (grava `localStorage["umami.disabled"] = "1"`, a chave oficial do Umami).
 
 Arquivos: `index.html` (tela), `app.js` (leitura e organização), `voz-worker.js` (voz), `texto.js` (preparo do texto para a fala).
 

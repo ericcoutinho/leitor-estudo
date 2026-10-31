@@ -1,7 +1,7 @@
 // Service worker: deixa o saber.ia instalável e abrindo sem internet (os materiais já salvos).
 // Página: rede primeiro (pega a versão nova), cache como reserva. Arquivos com ?v=, bibliotecas do CDN, fontes e
-// amostras: cache primeiro (não mudam). A IA e o modelo da voz passam direto (a biblioteca da voz já guarda o modelo).
-const CACHE = "saberia-v2";
+// amostras: cache primeiro (não mudam). A IA, o modelo da voz e as estatísticas (Umami) passam direto, sem cache.
+const CACHE = "saberia-v3";
 const BASE = ["./", "manifest.webmanifest", "icone-192.png", "icone-512.png", "favicon.svg", "favicon-32.png",
   "marca/logo-principal.svg", "marca/logo-negativa.svg", "marca/simbolo-azul.svg", "marca/simbolo-azul-luz.svg",
   "fontes/Inter-Regular.woff2", "fontes/Inter-Medium.woff2", "fontes/Inter-SemiBold.woff2", "fontes/Inter-Bold.woff2",
@@ -13,7 +13,7 @@ self.addEventListener("activate", (e) => e.waitUntil(caches.keys()
 self.addEventListener("fetch", (e) => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== "GET") return;
-  if (url.hostname === "generativelanguage.googleapis.com" || url.hostname.endsWith("huggingface.co") || url.hostname.endsWith("hf.co")) return;
+  if (url.hostname === "generativelanguage.googleapis.com" || url.hostname === "umami.regra32.tec.br" || url.hostname.endsWith("huggingface.co") || url.hostname.endsWith("hf.co")) return;
   const pagina = req.mode === "navigate" || (url.origin === location.origin && /(\/|\.html)$/.test(url.pathname));
   if (pagina) {
     e.respondWith(fetch(req).then((r) => { const copia = r.clone(); caches.open(CACHE).then((c) => c.put(req, copia)); return r; })

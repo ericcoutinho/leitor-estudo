@@ -1,7 +1,7 @@
 // saber.ia — leitor de estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261030230821";
+import { paraFala } from "./texto.js?v=20261031001326";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -53,6 +53,11 @@ function apagarChave(k) {
   if (banco) pedido(loja("readwrite").delete(k)).catch(() => {});
   try { localStorage.removeItem(k); } catch {}
 }
+// ---------- estatísticas anônimas (Umami, sem cookies) ----------
+// Só nomes de eventos e propriedades genéricas: nunca título, texto, nome de arquivo, chave ou id de material.
+// Se o script estiver bloqueado (adblock), offline ou desligado em Configurações, não faz nada.
+function medir(nome, dados) { try { window.umami?.track(nome, dados); } catch {} }
+const faixa = (n, limites) => { for (const [ate, rotulo] of limites) if (n < ate) return rotulo; return limites.at(-1)[1]; };
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 // ---------- extração e limpeza do texto ----------
@@ -200,6 +205,7 @@ async function processar(e, chave) {
       else if (estudo?.id === e.id) { estudo = e; const p = pos, t = topico; if (!tocando) montar(t, p); }
     } catch (err) {
       andamento.delete(e.id);
+      medir("organizar_ia", { resultado: /cota/i.test(err.message) ? "cota" : "erro", provedor: "gemini" });
       salvarEstudo(e); carregarLista();
       if (preparo?.id === e.id) { mostrarPreparo({ erro: err.message }); return false; }
       st.className = "estado erro";
@@ -210,6 +216,7 @@ async function processar(e, chave) {
     }
   }
   st.textContent = ""; andamento.delete(e.id);
+  medir("organizar_ia", { resultado: "ok", provedor: "gemini" });
   return true;
 }
 
@@ -226,10 +233,12 @@ async function enviar(arquivo) {
   } catch (err) { if (preparo && !preparo.id) mostrarPreparo({ erro: err.message }); else { st.className = "estado erro"; st.textContent = "Erro: " + err.message; } }
 }
 
-async function criarMaterial(titulo, texto, tipo, objetivo = objetivoEscolhido(), forcarIa = false) {
+async function criarMaterial(titulo, texto, tipo, objetivo = objetivoEscolhido(), forcarIa = false, colado = false) {
   const st = $("#estado"); st.className = "estado";
   const chave = $("#chave").value.trim();
   const querIa = forcarIa || $("#usarIa").checked, usarIa = querIa && chave;
+  if (!forcarIa) medir("material_novo", { tipo: colado ? "colado" : tipo === "pdf" ? "pdf" : /^docx?$/.test(tipo) ? "word" : "txt",
+    com_ia: usarIa ? "sim" : "nao", objetivo: usarIa ? objetivo?.tipo || "auto" : "nenhum" });
   const agora = new Date();
   const e = { id: String(agora.getTime()), titulo, tipo, criado: agora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }),
     organizado_por: usarIa ? "Gemini" : "sem IA", topicos: [], pronuncia: {}, pendentes: [], partes_total: 0,
@@ -304,7 +313,7 @@ $("#usarColado").onclick = () => {
   const texto = limpar($("#colado").value);
   const titulo = texto.split("\n")[0].slice(0, 60).trim() || "Texto colado";
   $("#colado").value = ""; $("#usarColado").disabled = true; fecharModais();
-  criarMaterial(titulo, texto, "txt");
+  criarMaterial(titulo, texto, "txt", undefined, false, true);
 };
 // arrastar arquivo em qualquer lugar da página
 let arrastos = 0;
@@ -441,8 +450,8 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261030230821", import.meta.url), { type: "module" });
-let vozPronta = null, pedidos = new Map(), seq = 0;
+const worker = new Worker(new URL("./voz-worker.js?v=20261031001326", import.meta.url), { type: "module" });
+let vozPronta = null, pedidos = new Map(), seq = 0, baixandoVoz = false, inicioVoz = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
   const el = $("#vozAviso");
@@ -455,6 +464,7 @@ function avisoVoz(titulo, detalhe, pct) {
 worker.onmessage = ({ data }) => {
   if (data.tipo === "progresso") {
     if (data.total < 1048576) return; // voz já guardada no navegador: não há download para mostrar
+    baixandoVoz = true;
     const pct = Math.min(100, Math.round((data.carregado / data.total) * 100));
     avisoVoz(`Baixando a voz: ${mb(data.carregado)} de ${mb(data.total)} MB (${pct}%)`,
       "Só acontece na primeira vez. Depois a voz fica guardada neste navegador e abre na hora.", pct);
@@ -466,6 +476,9 @@ worker.onmessage = ({ data }) => {
     $("#vozEstado").classList.add("ok");
     $("#vozTexto").textContent = data.device === "webgpu" ? "Voz pronta (placa de vídeo)" : "Voz pronta (processador: pode pausar entre frases)";
     vozPronta.ok();
+    if (baixandoVoz) medir("voz_baixada", { via: data.device === "webgpu" ? "webgpu" : "wasm",
+      segundos: faixa((Date.now() - inicioVoz) / 1000, [[30, "0-30"], [60, "30-60"], [180, "60-180"], [600, "180-600"], [Infinity, "600+"]]) });
+    baixandoVoz = false;
   }
   if (data.tipo === "audio") { pedidos.get(data.id)?.ok(URL.createObjectURL(new Blob([data.buf], { type: "audio/wav" }))); pedidos.delete(data.id); }
   if (data.tipo === "erro") {
@@ -480,7 +493,7 @@ worker.onmessage = ({ data }) => {
 function carregarVoz() {
   if (!vozPronta) {
     let ok, falha; const p = new Promise((a, b) => { ok = a; falha = b; });
-    vozPronta = { p, ok, falha };
+    vozPronta = { p, ok, falha }; inicioVoz = Date.now();
     $("#vozTexto").textContent = "Preparando a voz…";
     avisoVoz("Preparando a voz…", "Na primeira vez ela é baixada para o seu aparelho (cerca de 300 MB).", null);
     worker.postMessage({ tipo: "carregar" });
@@ -767,7 +780,7 @@ function grifar(ini, fim, cor) {
     if (g.ini < ini) resto.push({ ...g, fim: ini });
     if (g.fim > fim) resto.push({ ...g, ini: fim });
   }
-  if (cor !== "borracha") resto.push({ topico, ini, fim, cor });
+  if (cor !== "borracha") { resto.push({ topico, ini, fim, cor }); medir("marca_texto"); }
   // grifos encostados e da mesma cor viram um só
   const unidos = [];
   for (const g of resto.sort((a, b) => a.topico - b.topico || a.ini - b.ini)) {
@@ -853,6 +866,7 @@ function marcar(acao) {
   $("#barraMarca").hidden = true;
   const m = { id: String(Date.now()), topico, trecho: selecaoAtual.texto, frases: selecaoAtual.frases, acao, criado: new Date().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) };
   getSelection().removeAllRanges();
+  medir("duvida", { acao: acao === "cartao" ? "flashcard" : acao });
   (estudo.marcas ||= []).push(m);
   salvarEstudo(estudo);
   pintarMarcas();
@@ -971,6 +985,7 @@ function listarDuvidas(novo) {
       if (!pergunta) return campo.focus();
       const base = acha(b.dataset.perguntar);
       const m = { id: String(Date.now()), topico: base.topico, trecho: base.trecho, frases: base.frases, acao: "pergunta", pergunta, criado: new Date().toLocaleString("pt-BR") };
+      medir("duvida", { acao: "pergunta" });
       estudo.marcas.push(m); salvarEstudo(estudo); pintarMarcas(); responderMarca(m, pergunta);
     };
     caixa.querySelector(".enviar").onclick = enviar;
@@ -1084,7 +1099,10 @@ function parar() {
 
 $("#tocar").onclick = () => {
   if (modo === "guiado" && guia.etapa !== 2 && !ouvindo) return falandoGuia() || $("#tocar").classList.contains("carregando") ? calarGuia() : guia.falar && falarGuia(guia.falar);
-  ouvindo ? pararOuvir() : tocando ? parar() : tocar();
+  if (ouvindo) return pararOuvir();
+  if (tocando) return parar();
+  medir("ler_play", { voz: vozAtual });
+  tocar();
 };
 const pular = (f) => () => { const t = tocando; parar(); f(); if (t) tocar(); };
 $("#fraseAnt").onclick = pular(() => ir(pos - 1));
@@ -1128,6 +1146,7 @@ function ligarAbas() {
   document.querySelectorAll(".aba").forEach((b) => (b.onclick = () => {
     if (b.dataset.modo === modo) return;
     parar(); calarGuia(); calarSimulado(); modo = b.dataset.modo;
+    medir("modo", { aba: modo === "cartoes" ? "flashcards" : modo });
     document.body.classList.toggle("modo-cartoes", modo === "cartoes");
     document.body.classList.toggle("modo-simulado", modo === "simulado");
     document.body.classList.remove("guia-passo");
@@ -1215,6 +1234,7 @@ function registrarResposta(sabia) {
   cx[c.chave] = sabia ? Math.min(5, (cx[c.chave] || 0) + 1) : 0;
   guardar("caixas:" + estudo.id, cx);
   sabia ? rodada.acertos++ : rodada.erros++;
+  medir("flashcard_resposta", { acerto: sabia ? "sim" : "nao" });
   ultima = sabia ? "ok" : "erro";
   if (!sabia) sessao.splice(Math.min(3, sessao.length), 0, c); // errou: volta daqui a 3 cartões
   virado = false;
@@ -1515,7 +1535,7 @@ function formPlano(pl) {
   $("#cancelarPlano") && ($("#cancelarPlano").onclick = () => mostrarPlano());
   $("#salvarPlano").onclick = () => {
     ler(); rascunho.criado ||= hojeISO();
-    guardar("plano", rascunho); toast("Plano criado! Toda vez que abrir, a tarefa do dia aparece aqui e na biblioteca.", [], 5000);
+    guardar("plano", rascunho); medir("plano_salvo"); toast("Plano criado! Toda vez que abrir, a tarefa do dia aparece aqui e na biblioteca.", [], 5000);
     mostrarPlano();
   };
 }
@@ -1524,7 +1544,7 @@ $("#navPlano").onclick = () => mostrarPlano();
 // faixa do plano no topo da biblioteca
 function faixaPlano() {
   const pl = lembrar("plano", null);
-  if (!pl) return `<button class="faixa-plano vazio" id="faixaPlano"><span>🎯</span><div><b>Tem prova ou entrevista marcada?</b><small>Monte um plano: diga a data e quanto tempo tem por dia</small></div><span class="seta">›</span></button>`;
+  if (!pl) return `<button class="faixa-plano sem-plano" id="faixaPlano"><span>🎯</span><div><b>Tem prova ou entrevista marcada?</b><small>Monte um plano: diga a data e quanto tempo tem por dia</small></div><span class="seta">›</span></button>`;
   const c = calcularPlano(pl), hoje = hojeISO(), a = c.agenda[hoje], faltam = diasEntre(hoje, pl.data);
   const n = a ? grupos(a.leitura).length + grupos(a.revisao).length + (a.geral ? 1 : 0) : 0;
   const quando = faltam > 1 ? `faltam ${faltam} dias` : faltam === 1 ? "é amanhã" : faltam === 0 ? "é hoje" : "já passou";
@@ -1944,6 +1964,8 @@ function entregarSimulado() {
   b.historico = [...b.historico, { data: hoje, acertos, total: sim.itens.length, seg, por }].slice(-30);
   guardar("simulado:" + e.id, b); guardar("caixas:" + e.id, cx); salvarEstudo(e);
   sim = { ...sim, fase: "fim", acertos, por, fracos, seg };
+  medir("simulado_fim", { questoes: sim.itens.length, tipo: ajusteSim.tipo,
+    nota_faixa: faixa((acertos / sim.itens.length) * 100, [[40, "0-40"], [70, "40-70"], [Infinity, "70-100"]]) });
   montarSimulado();
   $(".conteudo").scrollTop = 0;
   falarSim(`Você acertou ${acertos} de ${sim.itens.length}.`);
@@ -2040,6 +2062,7 @@ function desenharPomo() {
   $("#pomoHoje").textContent = feitos ? `Hoje: ${feitos} pomodoro${feitos > 1 ? "s" : ""} de foco (${feitos * pomo.foco} min)` : "Dica: 25 min de foco e 5 de pausa; a cada 4 focos, uma pausa longa.";
 }
 function iniciarPomo() {
+  if (pomo.fase === "foco" && pomo.restante == null) medir("pomodoro_inicio"); // bloco de foco novo (não conta retomar da pausa)
   pomo.fimEm = Date.now() + (pomo.restante ?? duracao(pomo.fase));
   pomo.rodando = true; delete pomo.restante;
   salvarPomo(); desenharPomo();
@@ -2218,7 +2241,7 @@ function aplicarTema() {
   const escuro = t === "dark" || (t === "sistema" && matchMedia("(prefers-color-scheme: dark)").matches);
   $('meta[name="theme-color"]').content = escuro ? "#0a2140" : "#0053FA";
 }
-document.querySelectorAll("[data-tema]").forEach((b) => (b.onclick = () => { guardar("tema", b.dataset.tema); aplicarTema(); }));
+document.querySelectorAll("[data-tema]").forEach((b) => (b.onclick = () => { guardar("tema", b.dataset.tema); aplicarTema(); medir("tema", { valor: b.dataset.tema }); }));
 const ESCALAS = [0.85, 0.92, 1, 1.1, 1.2, 1.35, 1.5];
 function aplicarLetra() {
   const e = lembrar("escalaTexto", 1);
@@ -2251,7 +2274,12 @@ function baixarBackup() {
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   toast(`Backup salvo: ${indice().length} materiais. A chave da IA não vai junto.`, [], 5000);
 }
-$("#exportar").onclick = baixarBackup;
+// estatísticas anônimas: "umami.disabled" no localStorage é a chave oficial do Umami para não enviar nada
+try { $("#estatisticas").checked = !localStorage.getItem("umami.disabled"); } catch {}
+$("#estatisticas").onchange = () => {
+  try { $("#estatisticas").checked ? localStorage.removeItem("umami.disabled") : localStorage.setItem("umami.disabled", "1"); } catch {}
+};
+$("#exportar").onclick = () => { baixarBackup(); medir("backup", { acao: "exportar" }); };
 $("#importar").onchange = async (ev) => {
   const f = ev.target.files[0]; ev.target.value = "";
   if (!f) return;
@@ -2267,6 +2295,7 @@ $("#importar").onchange = async (ev) => {
     guardar("estudos", [...vindos, ...atuais.filter((e) => !vindos.some((x) => x.id === e.id))]);
     fecharModais(); aplicarTema(); aplicarLetra(); aplicarVolume(); $("#animarFolha").checked = lembrar("animarFolha", true); mostrarVoz(); mostrarBiblioteca();
     toast(`Backup importado: ${vindos.length} materiais.`, [], 5000);
+    medir("backup", { acao: "importar" });
   } catch (err) { toast("Não deu para importar: " + err.message, [], 7000); }
 };
 async function mostrarEspaco() {
@@ -2276,7 +2305,7 @@ async function mostrarEspaco() {
 // ---------- instalar como app (PWA): funciona sem internet para o que já está salvo ----------
 let pedidoInstalar = null;
 addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); pedidoInstalar = e; textoInstalar(); });
-addEventListener("appinstalled", () => { pedidoInstalar = null; textoInstalar(); toast("saber.ia instalado! Ele aparece junto com os seus apps.", [], 5000); });
+addEventListener("appinstalled", () => { medir("instalar_app"); pedidoInstalar = null; textoInstalar(); toast("saber.ia instalado! Ele aparece junto com os seus apps.", [], 5000); });
 function textoInstalar() {
   const instalado = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -2388,6 +2417,7 @@ function aplicarRecebido(backup) {
   const b = lerBackupRecebido(backup);
   if (!b) throw new Error("os dados do endereço antigo não vieram certos");
   const r = mesclarRecebido(b);
+  medir("migracao_recebida", { materiais: faixa(r.total, [[1, "0"], [6, "1-5"], [21, "6-20"], [Infinity, "20+"]]) });
   const detalhe = [r.novos && `${r.novos} ${r.novos === 1 ? "novo" : "novos"}`, r.atualizados && `${r.atualizados} ${r.atualizados === 1 ? "atualizado" : "atualizados"}`,
     r.iguais && `${r.iguais} já ${r.iguais === 1 ? "estava" : "estavam"} aqui`].filter(Boolean).join(", ");
   avisoMudou("ok", ICONE_OK, `<b>${r.total === 1 ? "1 material veio" : `${r.total} materiais vieram`} do endereço antigo${detalhe ? ` (${detalhe})` : ""}.</b>
