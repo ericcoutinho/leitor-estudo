@@ -2317,7 +2317,12 @@ function textoInstalar() {
 }
 $("#btnInstalar").onclick = async () => { if (!pedidoInstalar) return; pedidoInstalar.prompt(); await pedidoInstalar.userChoice.catch(() => {}); pedidoInstalar = null; textoInstalar(); };
 $("#btnConfig").addEventListener("click", () => { textoInstalar(); mostrarEspaco(); });
-if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  // o saber.ia morava na raiz e registrou um service worker com escopo "/": fora da raiz ele só atrapalha (a raiz agora
+  // é a entrada da Saberia). Some daqui; os materiais (IndexedDB "leitor-estudo") e os ajustes não são tocados.
+  if (location.pathname !== "/") navigator.serviceWorker.getRegistrations().then((rs) => rs.filter((r) => r.scope === location.origin + "/").forEach((r) => r.unregister())).catch(() => {});
+}
 textoInstalar();
 
 // ---------- mudança de endereço: ericcoutinho.github.io/leitor-estudo → saberia.regra32.tec.br ----------
@@ -2325,10 +2330,13 @@ textoInstalar();
 // aba (#migrar); o novo avisa que está pronto (postMessage), o antigo manda o backup completo + chave da IA, e o novo
 // junta com o que já tiver lá e confirma. Os dois lados só aceitam mensagens da origem do outro e só mandam para ela.
 const ENDERECOS = { antigo: "https://ericcoutinho.github.io", novo: "https://saberia.regra32.tec.br" };
+// caminho do saber.ia dentro de saberia.regra32.tec.br (a raiz virou a entrada da Saberia em nov/2026). Quem manda é o
+// CAMINHO do publicar.sh, que carimba esta linha a cada publicação — trocar o nome é só mudar lá (e no Traefik/banco).
+const CAMINHO = "/estudo/";
 // teste no próprio computador: sirva a pasta em duas portas (antigo e novo). Só vale quando a página roda em localhost.
 const ENDERECOS_TESTE = { antigo: "http://localhost:8101", novo: "http://localhost:8102" };
 const END = ["localhost", "127.0.0.1"].includes(location.hostname) ? ENDERECOS_TESTE : ENDERECOS;
-const NOVO_URL = END.novo + "/", NOVO_NOME = new URL(END.novo).host;
+const NOVO_URL = END.novo + (END === ENDERECOS ? CAMINHO : "/"), NOVO_NOME = new URL(END.novo).host;
 const ICONE_MUDOU = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 const ICONE_OK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg>';
 const ICONE_ATENCAO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>';

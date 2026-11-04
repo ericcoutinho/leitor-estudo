@@ -1,7 +1,8 @@
 // Service worker: deixa o saber.ia instalável e abrindo sem internet (os materiais já salvos).
 // Página: rede primeiro (pega a versão nova), cache como reserva. Arquivos com ?v=, bibliotecas do CDN, fontes e
 // amostras: cache primeiro (não mudam). A IA, o modelo da voz e as estatísticas (Umami) passam direto, sem cache.
-const CACHE = "saberia-v3";
+// "saberia-estudo-v*": nome novo desde a mudança para /estudo/ (o service worker antigo da raiz apaga só "saberia-v*")
+const CACHE = "saberia-estudo-v1";
 const BASE = ["./", "manifest.webmanifest", "icone-192.png", "icone-512.png", "favicon.svg", "favicon-32.png",
   "marca/logo-principal.svg", "marca/logo-negativa.svg", "marca/simbolo-azul.svg", "marca/simbolo-azul-luz.svg",
   "fontes/Inter-Regular.woff2", "fontes/Inter-Medium.woff2", "fontes/Inter-SemiBold.woff2", "fontes/Inter-Bold.woff2",
@@ -9,7 +10,7 @@ const BASE = ["./", "manifest.webmanifest", "icone-192.png", "icone-512.png", "f
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(BASE))); self.skipWaiting(); });
 // ao ativar, apaga só os caches antigos deste service worker ("leitor-v1", "saberia-v1"...); o cache do modelo da voz fica
 self.addEventListener("activate", (e) => e.waitUntil(caches.keys()
-  .then((ks) => Promise.all(ks.filter((k) => k !== CACHE && /^(leitor|saberia)-v\d+$/.test(k)).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
+  .then((ks) => Promise.all(ks.filter((k) => k !== CACHE && /^(leitor|saberia|saberia-estudo)-v\d+$/.test(k)).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener("fetch", (e) => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== "GET") return;
