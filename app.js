@@ -1,7 +1,7 @@
 // saber.ia — leitor de estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261031001326";
+import { paraFala } from "./texto.js?v=20261104200247";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
@@ -450,7 +450,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261031001326", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261104200247", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0, baixandoVoz = false, inicioVoz = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
