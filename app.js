@@ -1,7 +1,7 @@
 // saber.ia — leitor de estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261107025041";
+import { paraFala } from "./texto.js?v=20261107031634";
 
 const PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/";
 pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + "build/pdf.worker.min.mjs";
@@ -214,7 +214,7 @@ const indice = () => lembrar("estudos", []);
 function salvarEstudo(e) {
   if (!guardar("estudo:" + e.id, e)) throw new Error("o navegador não deixou salvar (espaço cheio ou modo anônimo)");
   const resumo = { id: e.id, titulo: e.titulo, criado: e.criado, organizado_por: e.organizado_por, topicos: e.topicos.length, faltam: e.pendentes?.length || 0,
-    objetivo: e.objetivo && e.objetivo.tipo !== "auto" ? nomeObjetivo(e.objetivo) : "" };
+    objetivo: e.objetivo && e.objetivo.tipo !== "auto" ? nomeObjetivo(e.objetivo) : "", aula: aulaPronta(e) };
   guardar("estudos", [resumo, ...indice().filter((x) => x.id !== e.id)]);
 }
 
@@ -299,7 +299,7 @@ const andamento = new Map(); // id → { n, total, texto } da organização em c
 function mostrarPreparo(mudar = {}) {
   parar(); estudo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   preparo = { ...preparo, ...mudar };
-  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado");
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado", "modo-aula");
   $("#navBiblioteca").classList.remove("ativo"); $("#linhaProgresso").style.width = "0";
   const a = preparo.id ? andamento.get(preparo.id) : null;
   const pct = a ? Math.round(((a.n - 1) / a.total) * 100) : 0;
@@ -442,7 +442,7 @@ const ICONE_TIPO = {
 function mostrarBiblioteca() {
   parar(); estudo = null; modo = "ler"; preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   $("#tituloTopo").textContent = "Biblioteca";
-  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado", "guia-passo");
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado", "modo-aula", "guia-passo");
   $("#navBiblioteca").classList.add("ativo"); $("#linhaProgresso").style.width = "0";
   const lista = indice();
   const soltar = `<label class="soltar" id="soltarBiblioteca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
@@ -457,7 +457,7 @@ function mostrarBiblioteca() {
       return `<div class="material" role="button" tabindex="0" data-id="${esc(e.id)}">
         <span class="miniatura">${ICONE_TIPO[e.tipo === "pdf" ? "pdf" : "txt"]}</span>
         <span class="info"><b>${esc(e.titulo)}</b>
-          <small>${andamento.has(e.id) ? `<span class="etiqueta organizando">Organizando parte ${andamento.get(e.id).n} de ${andamento.get(e.id).total}…</span>` : `<span class="etiqueta ${ia ? "ia" : ""}">${ia ? "Organizado com IA" : "Texto original"}</span>`} · ${e.topicos} tópicos${e.objetivo ? ` · 🎯 ${esc(e.objetivo)}` : ""}${e.faltam ? ` · faltam ${e.faltam} partes` : ""} · ${esc(e.criado)}${pct ? ` · ${pct}% lido` : ""}</small>
+          <small>${andamento.has(e.id) ? `<span class="etiqueta organizando">Organizando parte ${andamento.get(e.id).n} de ${andamento.get(e.id).total}…</span>` : `<span class="etiqueta ${ia ? "ia" : ""}">${ia ? "Organizado com IA" : "Texto original"}</span>`}${aulaAndamento.has(e.id) ? ' <span class="etiqueta organizando">Preparando aula…</span>' : e.aula ? ' <span class="etiqueta aula">Aula animada</span>' : ""} · ${e.topicos} tópicos${e.objetivo ? ` · 🎯 ${esc(e.objetivo)}` : ""}${e.faltam ? ` · faltam ${e.faltam} partes` : ""} · ${esc(e.criado)}${pct ? ` · ${pct}% lido` : ""}</small>
           ${pct ? `<span class="barrinha"><i style="width:${pct}%"></i></span>` : ""}</span>
         <button class="apagar-item" data-apagar="${esc(e.id)}" title="Apagar">Apagar</button></div>`;
     }).join("")}</div><div style="margin-top:18px">${soltar}</div>` : soltar);
@@ -483,7 +483,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261107025041", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261107031634", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0, baixandoVoz = false, inicioVoz = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -555,9 +555,10 @@ function abrir(id) {
   parar();
   estudo = lembrar("estudo:" + id, null);
   if (!estudo) return;
+  limparAulaPre(); cenaAtual = 0;
   preparo = null; naTelaPlano = false; $("#navPlano").classList.remove("ativo");
   try { localStorage.setItem("ultimo", JSON.stringify(id)); } catch {}
-  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "modo-simulado", "na-biblioteca", "guia-passo");
+  modo = "ler"; filtroTopico = "todos"; document.body.classList.remove("modo-cartoes", "modo-simulado", "modo-aula", "na-biblioteca", "guia-passo");
   $("#navBiblioteca").classList.remove("ativo"); $("#tituloMaterial").textContent = estudo.titulo;
   const salvo = lembrar("pos:" + id, { topico: 0, pos: 0 });
   montar(salvo.topico, salvo.pos);
@@ -626,6 +627,11 @@ async function organizarDepois() {
 }
 
 function montar(t, p = 0) {
+  if (modo === "aula" && estudo.topicos.length) {
+    const novo = Math.max(0, Math.min(t, estudo.topicos.length - 1));
+    if (novo !== topico) cenaAtual = 0;
+    topico = novo; return montarAula();
+  }
   if (modo === "cartoes" && estudo.topicos.length) return montarCartoes(); // material atualizado durante os cartões
   if (modo === "simulado" && estudo.topicos.length) return montarSimulado();
   if (modo === "guiado" && estudo.topicos.length) {
@@ -643,10 +649,7 @@ function montar(t, p = 0) {
   const tp = estudo.topicos[topico];
   const span = (texto, tipo) => { fila.push({ texto, tipo }); return `<span class="frase" data-i="${fila.length - 1}">${esc(texto)}</span> `; };
   const n = estudo.topicos.length;
-  let html = faixaIa() + faixaObjetivo() + abas() + `<div class="nav-topico">
-    <button class="icone" id="topAnt" title="Tópico anterior" aria-label="Tópico anterior" ${topico ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
-    <button class="btn-sumario" id="abrirSumario" title="Ver todos os tópicos"><span class="n">${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
-    <button class="icone" id="topProx" title="Próximo tópico" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
+  let html = faixaIa() + faixaObjetivo() + abas() + navTopico();
   if (guiado) html += stepper() + `<div class="faixa-guia">Leia (ou ouça) procurando a resposta da pergunta-guia. No fim, vem a hora de recordar. <button class="link" id="irRecordar">Já li, ir para Recordar →</button></div>`;
   html += `<div class="folha entra"><h2 class="titulo">${span(tp.titulo, "titulo")}</h2><div class="texto">${(tp.texto || "").split(/\n\s*\n/).map((par) => `<p>${frases(par).map((f) => span(f)).join("")}</p>`).join("")}</div>`;
   if (tp.resumo && lembrar("prefResumo", true) && !guiado) {
@@ -671,9 +674,7 @@ function montar(t, p = 0) {
   pintarGrifos();
   ligarAbas();
   $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
-  $("#topAnt").onclick = () => irTopico(topico - 1);
-  $("#topProx").onclick = () => irTopico(topico + 1);
-  $("#abrirSumario").onclick = abrirSumario;
+  ligarNavTopico();
   // tocar numa frase lê dali (mas não quando a pessoa está selecionando um trecho para marcar)
   document.querySelectorAll(".frase").forEach((f) => (f.onclick = () => { if (!getSelection().isCollapsed) return; parar(); ir(+f.dataset.i); tocar(); }));
   document.querySelectorAll(".r.oculta").forEach((r) => (r.onclick = () => r.classList.remove("oculta")));
@@ -684,6 +685,19 @@ function montar(t, p = 0) {
   };
   ir(Math.min(p, fila.length - 1));
   $(".conteudo").scrollTop = 0;
+}
+
+function navTopico() {
+  const n = estudo.topicos.length, tp = estudo.topicos[topico];
+  return `<div class="nav-topico">
+    <button class="icone" id="topAnt" title="Tópico anterior" aria-label="Tópico anterior" ${topico ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
+    <button class="btn-sumario" id="abrirSumario" title="Ver todos os tópicos"><span class="n">${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
+    <button class="icone" id="topProx" title="Próximo tópico" aria-label="Próximo tópico" ${topico < n - 1 ? "" : "disabled"}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div>`;
+}
+function ligarNavTopico() {
+  $("#topAnt").onclick = () => irTopico(topico - 1);
+  $("#topProx").onclick = () => irTopico(topico + 1);
+  $("#abrirSumario").onclick = abrirSumario;
 }
 
 // ---------- sumário (gaveta com todos os tópicos) ----------
@@ -747,7 +761,7 @@ function listarTopicos() {
   $("#listaTopicos").innerHTML = itens.length ? itens.map(({ t, i }) =>
     `<li><button data-t="${i}" class="${i === topico ? "atual" : i < topico ? "lido" : ""}" ${i === topico ? 'aria-current="true"' : ""}>
       <span class="num">${i < topico ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : i + 1}</span>
-      <span class="tt">${esc(t.titulo)}</span></button></li>`).join("") : '<li class="nada">Nenhum tópico com esse nome.</li>';
+      <span class="tt">${esc(t.titulo)}</span>${estudo.aula?.cenas?.[i]?.length ? `<span class="selo-aula" title="Aula animada pronta">${ICONE_AULA}</span>` : ""}</button></li>`).join("") : '<li class="nada">Nenhum tópico com esse nome.</li>';
   document.querySelectorAll("#listaTopicos [data-t]").forEach((b) => (b.onclick = () => irTopico(+b.dataset.t)));
 }
 function abrirSumario() {
@@ -1086,6 +1100,7 @@ function preparar(i) {
 let geracao = 0; // cada toque no ▶ abre uma leitura nova; a antiga para sozinha ao ver que não é mais a atual
 async function tocar() {
   if (!estudo) return;
+  if (modo === "aula") return tocarAula();
   if (espera) { const e = espera; espera = null; e(false); if (fila[pos]?.tipo === "pensar") pos++; }
   const g = ++geracao;
   const ativa = () => tocando && g === geracao;
@@ -1146,18 +1161,20 @@ function parar() {
   carregando(false);
   tocando = false; $("#tocar").innerHTML = PLAY; audio.onpause = null; audio.pause();
   if (espera) { espera(false); espera = null; }
+  $("#palcoPlay")?.classList.remove("some"); // aula animada pausada: volta o botão grande
 }
 
 $("#tocar").onclick = () => {
   if (modo === "guiado" && guia.etapa !== 2 && !ouvindo) return falandoGuia() || $("#tocar").classList.contains("carregando") ? calarGuia() : guia.falar && falarGuia(guia.falar);
   if (ouvindo) return pararOuvir();
   if (tocando) return parar();
+  if (modo === "aula") return tocarAula();
   medir("ler_play", { voz: vozAtual });
   tocar();
 };
 const pular = (f) => () => { const t = tocando; parar(); f(); if (t) tocar(); };
-$("#fraseAnt").onclick = pular(() => ir(pos - 1));
-$("#fraseProx").onclick = pular(() => ir(pos + 1));
+$("#fraseAnt").onclick = pular(() => (modo === "aula" ? irCena(-1) : ir(pos - 1)));
+$("#fraseProx").onclick = pular(() => (modo === "aula" ? irCena(1) : ir(pos + 1)));
 document.onkeydown = (e) => {
   if (["SELECT", "INPUT"].includes(e.target.tagName)) return;
   if (modo === "guiado" && guia.etapa !== 2) return;
@@ -1173,6 +1190,308 @@ document.onkeydown = (e) => {
   if (e.code === "ArrowRight") $("#fraseProx").click();
   if (e.code === "KeyM") alternarMudo();
 };
+
+// ---------- aula animada ----------
+// Cada tópico vira um roteiro de cenas: uma fala curta e um desenho que se monta enquanto a voz fala. Toca ao vivo,
+// sem render, com a mesma voz Kokoro da leitura. O roteiro fica salvo no material (e.aula.cenas[tópico]) e a geração
+// é presa ao material, não à tela: continua se a pessoa sair e avisa quando a aula fica pronta.
+const INSTRUCAO_AULA = `Você escreve o roteiro de uma AULA ANIMADA sobre um tópico de estudo, em português do Brasil.
+A aula é um vídeo de diagramas animados minimalistas: cada cena tem uma fala curta (lida por voz sintética) e um desenho
+que se monta aos poucos enquanto ela fala. Regras:
+- Cubra TODAS as ideias do tópico, na ordem, sem inventar nada que não esteja nele. Não resuma demais: quem assistir
+  precisa entender o tópico inteiro.
+- Faça cerca de {N} cenas. Cada "fala" tem de 1 a 3 frases curtas (no máximo 40 palavras), tom de professor conversando.
+  A primeira cena apresenta o assunto com uma pergunta ou um gancho; a última fecha com a ideia central.
+- Acentuação completa e correta (á, ã, â, é, ê, í, ó, õ, ô, ú, ç) em todos os campos. Nunca use travessão, emojis,
+  asteriscos ou marcadores.
+- Textos do desenho bem curtos (até 5 palavras por item, até 8 no título), em minúsculas quando não forem nomes próprios.
+- Em cada item do desenho, "pista" é uma palavra que aparece literalmente na fala da mesma cena: o item surge quando ela é dita.
+Tipos de "visual" (varie; não repita o mesmo tipo mais de 2 cenas seguidas):
+- {"tipo":"titulo","texto":"até 8 palavras","sub":"opcional"}
+- {"tipo":"lista","titulo":"opcional","itens":[{"texto":"...","pista":"palavra"}]} de 2 a 5 itens
+- {"tipo":"etapas","itens":[{"texto":"...","sub":"opcional","pista":"palavra"}]} de 2 a 5 passos, em ordem
+- {"tipo":"conceito","centro":"conceito central","itens":[{"texto":"...","pista":"palavra"}]} de 2 a 6 ideias ligadas a ele
+- {"tipo":"comparacao","esquerda":{"titulo":"...","itens":["..."]},"direita":{"titulo":"...","itens":["..."]}} de 1 a 4 itens por lado
+- {"tipo":"numero","valor":"número, data ou sigla curta","texto":"o que ele significa"}
+Em itens de lista, etapas e conceito, "tom" é opcional: "bom" (certo, solução) ou "ruim" (erro, problema).
+Responda SOMENTE com JSON válido: {"cenas":[{"fala":"...","visual":{...}}]}`;
+
+const curto = (s, n) => String(s ?? "").replace(/\s*[—–]\s*/g, ", ").replace(/[*_#]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
+// confere e arruma uma cena vinda da IA; desenho incompleto vira um título com o começo da fala
+function cenaValida(c) {
+  const fala = curto(c?.fala, 420), v = c?.visual || {};
+  if (!fala) return null;
+  const item = (x) => (typeof x === "string" ? { texto: curto(x, 44) }
+    : { texto: curto(x?.texto, 44), sub: curto(x?.sub, 44), pista: curto(x?.pista, 30), tom: ["bom", "ruim"].includes(x?.tom) ? x.tom : "" });
+  const itens = (a, max) => (Array.isArray(a) ? a : []).map(item).filter((x) => x.texto).slice(0, max);
+  let vis = null;
+  if (v.tipo === "lista" || v.tipo === "etapas") vis = { tipo: v.tipo, titulo: curto(v.titulo, 60), itens: itens(v.itens, 5) };
+  if (v.tipo === "conceito") vis = { tipo: "conceito", centro: curto(v.centro, 34), itens: itens(v.itens, 6) };
+  if (v.tipo === "comparacao") vis = { tipo: "comparacao",
+    esquerda: { titulo: curto(v.esquerda?.titulo, 34), itens: itens(v.esquerda?.itens, 4) },
+    direita: { titulo: curto(v.direita?.titulo, 34), itens: itens(v.direita?.itens, 4) } };
+  if (v.tipo === "numero") vis = { tipo: "numero", valor: curto(v.valor, 14), texto: curto(v.texto, 70) };
+  if (v.tipo === "titulo") vis = { tipo: "titulo", texto: curto(v.texto, 80), sub: curto(v.sub, 80) };
+  const falho = !vis || (vis.itens && vis.itens.length < 2) || (vis.tipo === "conceito" && !vis.centro)
+    || (vis.tipo === "comparacao" && (!vis.esquerda.itens.length || !vis.direita.itens.length))
+    || (vis.tipo === "numero" && !vis.valor) || (vis.tipo === "titulo" && !vis.texto);
+  if (falho) vis = { tipo: "titulo", texto: curto(v.texto || v.titulo || v.centro || fala.split(/[.!?:]/)[0], 80), sub: "" };
+  return { fala, visual: vis };
+}
+// textos que aparecem ou são falados (sem as chaves do JSON, que dariam falso alarme: "comparacao")
+const textosCena = (o) => (typeof o === "string" ? [o] : o && typeof o === "object"
+  ? Object.entries(o).filter(([k]) => !["tipo", "tom", "pista"].includes(k)).flatMap(([, v]) => textosCena(v)) : []);
+const cenasSemAcento = (cenas) => (textosCena(cenas).join(" ").match(SEM_ACENTO) || []).length >= 3;
+
+async function roteiroTopico(tp, chave, aviso) {
+  const n = Math.max(3, Math.min(10, Math.round((conta(tp.texto) + conta(tp.resumo)) / 45)));
+  const prompt = INSTRUCAO_AULA.replace("{N}", n) + `\n\nTÓPICO: ${tp.titulo}\n${tp.texto}${tp.resumo ? `\n\nRESUMO: ${tp.resumo}` : ""}`;
+  const prontas = (o) => (Array.isArray(o?.cenas) ? o.cenas.map(cenaValida).filter(Boolean) : []);
+  let cenas = prontas(await gemini(prompt, chave, aviso, (o) => prontas(o).length >= 2));
+  if (cenasSemAcento(cenas)) {
+    aviso("colocando os acentos…");
+    try {
+      const r = await gemini(INSTRUCAO_ACENTOS.replace('{"topicos":[...]}', '{"cenas":[...]}') + "\n\nJSON:\n" + JSON.stringify({ cenas }), chave, aviso,
+        (o) => prontas(o).length === cenas.length && !cenasSemAcento(prontas(o)));
+      cenas = prontas(r);
+    } catch {} // se não der, fica como veio (melhor sem acento do que sem aula)
+  }
+  return cenas;
+}
+
+const aulaAndamento = new Map(), aulaErro = new Map(), aulaVista = new Set();
+function aulaPronta(e) { return !!e?.topicos?.length && e.topicos.every((_, i) => e.aula?.cenas?.[i]?.length); }
+// grava só a aula, por cima da versão mais nova do material (a pessoa pode ter mexido nele enquanto a IA escrevia)
+function salvarAula(id, aula) {
+  const fresco = lembrar("estudo:" + id, null);
+  if (!fresco) return false; // material apagado no meio
+  fresco.aula = aula; salvarEstudo(fresco);
+  if (estudo?.id === id) estudo.aula = aula;
+  return true;
+}
+let autoplayAula = null; // { id, t }: a pessoa pediu a aula deste tópico e está esperando: toca assim que ficar pronta
+async function prepararAula() {
+  const chave = pedirChave();
+  if (!chave || !estudo || aulaAndamento.has(estudo.id)) return;
+  const e = estudo, id = e.id, desde = topico;
+  const aula = { pedida: true, cenas: { ...(e.aula?.cenas || {}) } };
+  const idx = [...e.topicos.keys()];
+  const ordem = [...idx.filter((i) => i >= desde), ...idx.filter((i) => i < desde)].filter((i) => !aula.cenas[i]?.length);
+  medir("aula_animada", { acao: "gerar" });
+  aulaErro.delete(id); autoplayAula = { id, t: desde };
+  salvarAula(id, aula);
+  aulaAndamento.set(id, { feitos: 0, total: ordem.length, topico: ordem[0], texto: "escrevendo o roteiro…" });
+  atualizarAula(id);
+  for (const i of ordem) {
+    const a = aulaAndamento.get(id);
+    a.topico = i; a.texto = "escrevendo o roteiro…"; atualizarAula(id);
+    try {
+      aula.cenas[i] = await roteiroTopico(e.topicos[i], chave, (t) => { a.texto = t; atualizarAula(id); });
+    } catch (err) {
+      aulaAndamento.delete(id); salvarAula(id, aula); aulaErro.set(id, err.message);
+      medir("aula_animada", { acao: "erro", motivo: /cota/i.test(err.message) ? "cota" : "erro" });
+      atualizarAula(id); carregarLista();
+      return;
+    }
+    a.feitos++;
+    if (!salvarAula(id, aula)) { aulaAndamento.delete(id); return; }
+    atualizarAula(id, i);
+  }
+  aulaAndamento.delete(id);
+  medir("aula_animada", { acao: "pronta" });
+  carregarLista();
+  if (estudo?.id === id && modo === "aula") atualizarAula(id);
+  else toast(`Aula animada de “${e.titulo}” pronta`, [["Assistir", () => assistirAula(id)]], 9000);
+}
+// andamento da geração: redesenha o que estiver na tela (sem interromper a aula tocando)
+function atualizarAula(id, pronto) {
+  if (!estudo) return carregarLista();
+  if (estudo.id !== id || modo !== "aula") return;
+  if (tocando) { const s = $("#aulaStatus"); if (s) s.innerHTML = statusAula(); return; }
+  montarAula();
+  if (pronto === topico && autoplayAula?.id === id && autoplayAula.t === topico) { autoplayAula = null; tocarAula(); }
+}
+function assistirAula(id) {
+  abrir(id);
+  if (!estudo) return;
+  modo = "aula"; cenaAtual = 0; document.body.classList.add("modo-aula");
+  montar(topico); tocarAula();
+}
+const statusAula = () => {
+  const a = estudo && aulaAndamento.get(estudo.id);
+  return a ? `<span class="pensando"></span>Preparando a aula: tópico ${a.topico + 1} de ${estudo.topicos.length} (${esc(a.texto)})` : "";
+};
+
+let cenaAtual = 0;
+const aulaPre = new Map();
+const limparAulaPre = () => { aulaPre.forEach((p) => p.then((u) => URL.revokeObjectURL(u)).catch(() => {})); aulaPre.clear(); };
+function vozCena(t, c) {
+  const cena = estudo?.aula?.cenas?.[t]?.[c];
+  if (!cena) return null;
+  const k = `${estudo.id}:${t}:${c}:${vozAtual}:${velAtual}`;
+  if (!aulaPre.has(k)) aulaPre.set(k, sintetizar(cena.fala));
+  return aulaPre.get(k);
+}
+
+const ICONE_AULA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="3"/><path d="m10 8 5 3-5 3z" fill="currentColor"/><path d="M8 21h8"/></svg>';
+function montarAula(fim = false) {
+  fila = []; limparPre();
+  const n = estudo.topicos.length, tp = estudo.topicos[topico], cenas = estudo.aula?.cenas?.[topico];
+  if (!cenas || cenaAtual >= cenas.length) cenaAtual = 0;
+  const a = aulaAndamento.get(estudo.id), erro = aulaErro.get(estudo.id);
+  let corpo;
+  if (cenas?.length) {
+    corpo = `<div class="palco" id="palco"><div class="palco-topo"><span>Tópico ${topico + 1} de ${n}</span><b>${esc(tp.titulo)}</b></div>
+      <div class="palco-cena" id="palcoCena"></div>
+      <div class="palco-barras">${cenas.map((_, i) => `<button data-cena="${i}" aria-label="Cena ${i + 1}"><i></i></button>`).join("")}</div>
+      <button class="palco-play" id="palcoPlay" aria-label="Assistir">${PLAY}<span>${fim ? "Assistir de novo" : cenaAtual ? "Continuar" : "Assistir a aula"}</span></button></div>
+      <p class="legenda-aula" id="legendaAula"></p>`;
+  } else if (a) {
+    corpo = `<div class="palco vazio-aula"><div class="aviso-aula"><span class="girando"></span><b>Preparando a aula deste tópico…</b>
+      <small>${a.topico === topico ? esc(a.texto) : `Agora no tópico ${a.topico + 1}; este vem em seguida.`}</small>
+      <small>Pode continuar estudando: quando ficar pronta, ela começa aqui ou avisamos onde você estiver.</small></div></div>`;
+  } else {
+    const parcial = estudo.aula?.pedida && !aulaPronta(estudo);
+    corpo = `<div class="palco vazio-aula"><div class="aviso-aula"><span class="icone-aula">${ICONE_AULA}</span><b>Aula animada</b>
+      <small>A IA transforma cada tópico numa aula curta, com desenhos que se montam enquanto a voz explica. Começa a tocar em alguns segundos e os próximos tópicos vão ficando prontos enquanto você assiste.</small>
+      ${erro ? `<small class="erro-aula">Parei: ${esc(erro)}. O que já ficou pronto está salvo.</small>` : ""}
+      <button class="pri" id="prepararAula">${parcial || erro ? "Continuar preparando a aula" : "Preparar aula animada"}</button></div></div>`;
+  }
+  $("#coluna").innerHTML = faixaIa() + abas() + navTopico() + `<div class="aula">${corpo}<div class="status-aula" id="aulaStatus">${a && cenas?.length ? statusAula() : ""}</div></div>`;
+  ligarAbas(); ligarNavTopico();
+  $("#btnIa") && ($("#btnIa").onclick = organizarDepois);
+  $("#prepararAula") && ($("#prepararAula").onclick = prepararAula);
+  if (cenas?.length) {
+    desenharCena(cenas[cenaAtual], true);
+    marcarBarras();
+    $("#palcoPlay").onclick = () => { if (fim) cenaAtual = 0; tocarAula(); };
+    document.querySelectorAll("[data-cena]").forEach((b) => (b.onclick = pular(() => irCena(+b.dataset.cena - cenaAtual))));
+  }
+  $(".conteudo").scrollTop = 0;
+}
+function irCena(d) {
+  const cenas = estudo?.aula?.cenas?.[topico];
+  if (!cenas?.length) return;
+  cenaAtual = Math.max(0, Math.min(cenas.length - 1, cenaAtual + d));
+  if (!tocando && $("#palcoCena")) { desenharCena(cenas[cenaAtual], true); marcarBarras(); }
+}
+function marcarBarras() {
+  document.querySelectorAll(".palco-barras button").forEach((b, i) => { b.classList.toggle("vista", i < cenaAtual); b.classList.toggle("atual", i === cenaAtual); });
+}
+
+// desenho da cena: cada elemento tem data-f = em que fração da fala ele aparece (pela palavra "pista")
+const semMarca = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+function desenharCena(cena, revelado) {
+  const fala = semMarca(cena.fala), v = cena.visual;
+  const quando = (pista, k, total) => {
+    const i = pista ? fala.search(new RegExp(`(^|[^\\p{L}])${semMarca(pista).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "u")) : -1;
+    return (i >= 0 ? i / fala.length : 0.1 + (0.7 * k) / Math.max(1, total)).toFixed(3);
+  };
+  const ent = (f, cls = "") => `class="ent ${cls}" data-f="${f}"`;
+  const tom = (t) => (t === "bom" ? "bom" : t === "ruim" ? "ruim" : "");
+  const marca = (t) => (t === "ruim" ? "✕" : t === "bom" ? "✓" : "");
+  let h = "";
+  if (v.tipo === "titulo") {
+    h = `<div class="v-titulo"><h3>${v.texto.split(" ").map((w, k) => `<span ${ent((0.01 + k * 0.035).toFixed(3), "pal")}>${esc(w)}</span>`).join(" ")}</h3>${v.sub ? `<p ${ent(0.3)}>${esc(v.sub)}</p>` : ""}</div>`;
+  } else if (v.tipo === "lista") {
+    h = `<div class="v-lista">${v.titulo ? `<h4 ${ent(0)}>${esc(v.titulo)}</h4>` : ""}<ul>${v.itens.map((it, k) =>
+      `<li ${ent(quando(it.pista, k, v.itens.length), tom(it.tom))}><i>${marca(it.tom)}</i><span>${esc(it.texto)}</span></li>`).join("")}</ul></div>`;
+  } else if (v.tipo === "etapas") {
+    h = `<div class="v-etapas">${v.titulo ? `<h4 ${ent(0)}>${esc(v.titulo)}</h4>` : ""}<ol>${v.itens.map((it, k) => {
+      const f = quando(it.pista, k, v.itens.length);
+      return `<li ${ent(f, tom(it.tom))}><b>${k + 1}</b><span>${esc(it.texto)}${it.sub ? `<small>${esc(it.sub)}</small>` : ""}</span></li>`;
+    }).join("")}</ol></div>`;
+  } else if (v.tipo === "conceito") {
+    const n = v.itens.length;
+    const pts = v.itens.map((_, k) => { const ang = -Math.PI / 2 + (2 * Math.PI * k) / n; return [50 + 36 * Math.cos(ang), 50 + 36 * Math.sin(ang)]; });
+    h = `<div class="v-conceito"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${pts.map(([x, y], k) =>
+      `<line ${ent(quando(v.itens[k].pista, k, n), "linha")} x1="50" y1="50" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" pathLength="1"/>`).join("")}</svg>
+      <div ${ent(0, "centro")}>${esc(v.centro)}</div>${v.itens.map((it, k) => {
+        const [x, y] = pts[k];
+        return `<div ${ent(quando(it.pista, k, n), "no " + tom(it.tom))} style="left:${Math.max(20, Math.min(80, x)).toFixed(1)}%;top:${Math.max(9, Math.min(91, y)).toFixed(1)}%">${esc(it.texto)}</div>`;
+      }).join("")}</div>`;
+  } else if (v.tipo === "comparacao") {
+    const total = v.esquerda.itens.length + v.direita.itens.length;
+    let k = 0;
+    const lado = (l, cls, f0) => `<div class="lado ${cls}"><h4 ${ent(f0)}>${esc(l.titulo)}</h4><ul>${l.itens.map((it) => `<li ${ent(quando(it.pista, k++, total))}>${esc(it.texto)}</li>`).join("")}</ul></div>`;
+    h = `<div class="v-comparacao">${lado(v.esquerda, "esq", 0.02)}<span class="versus" ${ent(0.04)}>×</span>${lado(v.direita, "dir", 0.06)}</div>`;
+  } else if (v.tipo === "numero") {
+    h = `<div class="v-numero"><b ${ent(0.02)} data-valor="${esc(v.valor)}">${esc(v.valor)}</b><p ${ent(0.25)}>${esc(v.texto)}</p></div>`;
+  }
+  const el = $("#palcoCena");
+  el.innerHTML = `<div class="cena cena-${v.tipo}">${h}</div>`;
+  if (revelado) el.querySelectorAll(".ent").forEach((x) => x.classList.add("on"));
+  const pal = cena.fala.split(/\s+/);
+  $("#legendaAula").innerHTML = pal.map((w) => `<span>${esc(w)}</span>`).join(" ");
+  if (revelado) $("#legendaAula").querySelectorAll("span").forEach((s) => s.classList.add("dita"));
+}
+// enquanto a voz fala: revela os elementos e as palavras da legenda no compasso do áudio
+function animarCena(ativa) {
+  const ents = [...document.querySelectorAll("#palcoCena .ent")], pals = [...document.querySelectorAll("#legendaAula span")];
+  const pesos = pals.map((p) => p.textContent.length + 1), soma = pesos.reduce((a, b) => a + b, 0);
+  const num = $("#palcoCena [data-valor]"), alvo = num && /^\d{1,7}([.,]\d+)?$/.test(num.dataset.valor) ? num.dataset.valor : null;
+  const passo = () => {
+    if (!ativa() || !document.body.contains(ents[0] || pals[0])) return;
+    const d = audio.duration, fr = d && isFinite(d) ? audio.currentTime / d : 0;
+    ents.forEach((x) => { if (+x.dataset.f <= fr + 0.03) x.classList.add("on"); });
+    let acc = 0; pals.forEach((p, i) => { acc += pesos[i]; p.classList.toggle("dita", acc / soma <= fr + 0.02); });
+    if (alvo) { const total = parseFloat(alvo.replace(",", ".")), casas = (alvo.split(/[.,]/)[1] || "").length;
+      num.textContent = Math.min(total, total * Math.min(1, fr / 0.25)).toFixed(casas).replace(".", alvo.includes(",") ? "," : "."); }
+    if (!audio.ended) requestAnimationFrame(passo);
+  };
+  requestAnimationFrame(passo);
+}
+function revelarTudo() {
+  document.querySelectorAll("#palcoCena .ent").forEach((x) => x.classList.add("on"));
+  document.querySelectorAll("#legendaAula span").forEach((s) => s.classList.add("dita"));
+  const num = $("#palcoCena [data-valor]"); if (num) num.textContent = num.dataset.valor;
+}
+// espera a IA terminar o roteiro do tópico atual (a aula pode chegar no tópico antes dele ficar pronto)
+async function esperarCenas(ativa) {
+  while (ativa() && estudo && !estudo.aula?.cenas?.[topico]?.length && aulaAndamento.has(estudo.id)) await dormir(0.4);
+}
+async function tocarAula() {
+  if (!estudo) return;
+  const g = ++geracao;
+  const ativa = () => tocando && g === geracao && modo === "aula";
+  tocando = true; $("#tocar").innerHTML = PAUSA;
+  pomoAoEstudar();
+  sessaoMidia();
+  if (!aulaVista.has(estudo.id)) { aulaVista.add(estudo.id); medir("aula_animada", { acao: "assistir" }); }
+  while (ativa()) {
+    const cenas = estudo.aula?.cenas?.[topico];
+    if (!cenas?.length) {
+      if (!aulaAndamento.has(estudo.id)) { parar(); return montarAula(); }
+      montarAula(); $("#tocar").innerHTML = PAUSA;
+      await esperarCenas(ativa);
+      if (!ativa()) return;
+      cenaAtual = 0; montarAula(); continue;
+    }
+    if (cenaAtual >= cenas.length) {
+      if (topico < estudo.topicos.length - 1) { topico++; cenaAtual = 0; marcarLido(estudo, topico - 1); montarAula(); continue; }
+      cenaAtual = 0; marcarLido(estudo, topico); parar(); return montarAula(true);
+    }
+    if (!$("#palcoCena")) montarAula();
+    const cena = cenas[cenaAtual];
+    $("#palcoPlay")?.classList.add("some");
+    desenharCena(cena, false); marcarBarras();
+    vozCena(topico, cenaAtual + 1) || vozCena(topico + 1, 0); vozCena(topico, cenaAtual + 2);
+    const aviso = setTimeout(() => carregando(true), 150);
+    let url;
+    try { url = await vozCena(topico, cenaAtual); } catch (e) { $("#vozTexto").textContent = "Erro na voz: " + e.message; return parar(); }
+    finally { clearTimeout(aviso); carregando(false); }
+    if (!ativa()) return;
+    audio.src = url;
+    await audio.play().catch(() => {});
+    animarCena(ativa);
+    const terminou = await new Promise((fim) => { audio.onended = () => fim(true); audio.onpause = () => fim(audio.ended); });
+    if (!terminou || !ativa()) { if (!tocando) $("#palcoPlay")?.classList.remove("some"); return; }
+    revelarTudo();
+    await dormir(0.5);
+    if (!ativa()) return;
+    cenaAtual++;
+  }
+}
 
 // ---------- flash cards ----------
 // Baralho = cartões que a IA criou + perguntas de revisão. Caixas (0 a 5) salvas por material: errou volta para a 0
@@ -1191,7 +1510,8 @@ function abas() {
   return `<div class="abas" role="tablist"><button class="aba ${modo === "ler" ? "ativo" : ""}" data-modo="ler" role="tab">Ler</button>` +
     `<button class="aba ${modo === "guiado" ? "ativo" : ""}" data-modo="guiado" role="tab">Estudo guiado</button>` +
     `<button class="aba ${modo === "cartoes" ? "ativo" : ""}" data-modo="cartoes" role="tab">Flash cards${n ? ` (${n})` : ""}</button>` +
-    `<button class="aba ${modo === "simulado" ? "ativo" : ""}" data-modo="simulado" role="tab">Simulado</button></div>`;
+    `<button class="aba ${modo === "simulado" ? "ativo" : ""}" data-modo="simulado" role="tab">Simulado</button>` +
+    `<button class="aba ${modo === "aula" ? "ativo" : ""}" data-modo="aula" role="tab">Aula animada</button></div>`;
 }
 function ligarAbas() {
   document.querySelectorAll(".aba").forEach((b) => (b.onclick = () => {
@@ -1200,9 +1520,13 @@ function ligarAbas() {
     medir("modo", { aba: modo === "cartoes" ? "flashcards" : modo });
     document.body.classList.toggle("modo-cartoes", modo === "cartoes");
     document.body.classList.toggle("modo-simulado", modo === "simulado");
+    document.body.classList.toggle("modo-aula", modo === "aula");
     document.body.classList.remove("guia-passo");
+    if (modo === "aula") cenaAtual = 0;
     modo === "cartoes" ? novaRodada() : modo === "guiado" ? iniciarGuiado() : modo === "simulado" ? iniciarSimulado() : montar(topico, pos);
   }));
+  // no celular as abas rolam de lado: a ativa fica à vista
+  document.querySelector(".aba.ativo")?.scrollIntoView({ inline: "center", block: "nearest" });
 }
 
 function novaRodada() {
@@ -1477,7 +1801,7 @@ const horas = (min) => (min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${mi
 
 function mostrarPlano(editar = false) {
   parar(); estudo = null; preparo = null; naTelaPlano = true; modo = "ler";
-  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado");
+  document.body.classList.add("na-biblioteca"); document.body.classList.remove("modo-cartoes", "modo-simulado", "modo-aula");
   $("#navBiblioteca").classList.remove("ativo"); $("#navPlano").classList.add("ativo");
   $("#tituloTopo").textContent = "Meu plano"; $("#linhaProgresso").style.width = "0";
   const pl = lembrar("plano", null);
@@ -2049,9 +2373,10 @@ setInterval(() => { if (modo === "simulado" && sim.fase === "prova") { const r =
 mostrarVoz();
 aplicarVolume(); // aqui embaixo: o elemento de áudio só existe depois do bloco da leitura
 mostrarBiblioteca();
+// declarada antes do primeiro uso: quem abre o app pela 1ª vez passa por aqui (antes, o uso adiantado travava o resto)
+const NOVIDADE = "aula-animada-2026-11"; // trocar a cada novidade nova, junto com o texto do #modalNovidade
 if (lembrar("voz", null) === null && !location.hash.startsWith("#migrar")) { boasVindas(); guardar("novidade", NOVIDADE); } // vindo do endereço antigo: a voz chega junto
 $("#fecharNovidade").onclick = () => ($("#modalNovidade").hidden = true);
-const NOVIDADE = "voz-2026-11"; // trocar a cada novidade nova, junto com o texto do #modalNovidade
 function boasVindas() {
   let escolha = vozAtual;
   const desenhar = () => {
