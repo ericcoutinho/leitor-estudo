@@ -1,7 +1,7 @@
 // saber.ia — leitor de estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261107024830";
+import { paraFala } from "./texto.js?v=20261107025041";
 
 const PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/";
 pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + "build/pdf.worker.min.mjs";
@@ -483,7 +483,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261107024830", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261107025041", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0, baixandoVoz = false, inicioVoz = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -2051,7 +2051,7 @@ aplicarVolume(); // aqui embaixo: o elemento de áudio só existe depois do bloc
 mostrarBiblioteca();
 if (lembrar("voz", null) === null && !location.hash.startsWith("#migrar")) { boasVindas(); guardar("novidade", NOVIDADE); } // vindo do endereço antigo: a voz chega junto
 $("#fecharNovidade").onclick = () => ($("#modalNovidade").hidden = true);
-const NOVIDADE = "acentos-2026-11"; // trocar a cada novidade nova, junto com o texto do #modalNovidade
+const NOVIDADE = "voz-2026-11"; // trocar a cada novidade nova, junto com o texto do #modalNovidade
 function boasVindas() {
   let escolha = vozAtual;
   const desenhar = () => {
