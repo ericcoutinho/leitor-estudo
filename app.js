@@ -1,9 +1,10 @@
 // saber.ia — leitor de estudo (versão web, sem servidor): extrai o texto do arquivo, a IA (Gemini, chave do próprio usuário)
 // organiza em tópicos e a voz Kokoro lê no aparelho (voz-worker.js). Materiais ficam salvos neste navegador.
 import * as pdfjs from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { paraFala } from "./texto.js?v=20261104200247";
+import { paraFala } from "./texto.js?v=20261107015425";
 
-pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+const PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/";
+pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + "build/pdf.worker.min.mjs";
 const $ = (s) => document.querySelector(s);
 const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 const PAUSA = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
@@ -64,7 +65,8 @@ const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 async function extrair(arquivo) {
   const nome = arquivo.name.toLowerCase(), dados = await arquivo.arrayBuffer();
   if (nome.endsWith(".pdf")) {
-    const pdf = await pdfjs.getDocument({ data: dados }).promise, paginas = [];
+    // sem os mapas de caracteres (cMaps) o pdf.js perde letras acentuadas de PDFs com fontes CID (Word, Google Docs)
+    const pdf = await pdfjs.getDocument({ data: dados, cMapUrl: PDFJS + "cmaps/", cMapPacked: true, standardFontDataUrl: PDFJS + "standard_fonts/" }).promise, paginas = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const c = await (await pdf.getPage(i)).getTextContent();
       paginas.push(c.items.map((it) => it.str + (it.hasEOL ? "\n" : "")).join(""));
@@ -72,7 +74,8 @@ async function extrair(arquivo) {
     return paginas.join("\n\n");
   }
   if (nome.endsWith(".docx")) return (await window.mammoth.extractRawText({ arrayBuffer: dados })).value;
-  return new TextDecoder().decode(dados);
+  // .txt salvo em ANSI (Bloco de Notas antigo, Windows-1252) não é UTF-8: lido como UTF-8, os acentos viram "�"
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(dados); } catch { return new TextDecoder("windows-1252").decode(dados); }
 }
 // PDF costuma guardar "ç" e "ã" em pedaços: letra + sinal combinado, ou sinal solto antes/depois da letra
 // (PDF de LaTeX: "Identifica¸c˜ao"). A tela junta, mas a voz lê só a letra — aqui vira "ç"/"ã" de verdade.
@@ -98,6 +101,8 @@ const INSTRUCAO = `Você prepara material de estudo para ser OUVIDO (vai ser lid
 Organize o trecho abaixo em tópicos, na ordem lógica do conteúdo. Regras:
 - NÃO corte informação que possa cair numa prova: definições, números, datas, nomes, listas, exceções.
 - Reescreva em frases curtas e claras, em português do Brasil, como um professor explicando.
+- Escreva sempre com a acentuação completa e correta (á, â, ã, à, é, ê, í, ó, ô, õ, ú, ç), em todos os campos e até o
+  último tópico, mesmo que o trecho venha sem acentos ou com acentos quebrados.
 - Explique termos técnicos e siglas na primeira vez que aparecem.
 - Nada de tabelas, marcadores, asteriscos ou emojis: só texto corrido para ouvir. Listas viram frases ("São três tipos: primeiro..., segundo..., terceiro...").
 - Para cada tópico: um resumo de 1 a 3 frases e de 1 a 3 perguntas de revisão com resposta curta.
@@ -164,12 +169,40 @@ async function gemini(prompt, chave, aviso, valida) {
 async function organizar(trecho, chave, aviso, objetivo) {
   const prompt = INSTRUCAO.replace("Responda SOMENTE", linhaObjetivo(objetivo) + "Responda SOMENTE") + "\n\nTRECHO:\n" + trecho;
   const o = await gemini(prompt, chave, aviso, (o) => Array.isArray(o.topicos) && o.topicos.length);
-  return { topicos: o.topicos, ingles: Array.isArray(o.ingles) ? o.ingles : [], objetivo: String(o.objetivo || "").toLowerCase().trim() };
+  const topicos = await acentuar(o.topicos, chave, aviso);
+  return { topicos, ingles: Array.isArray(o.ingles) ? o.ingles : [], objetivo: String(o.objetivo || "").toLowerCase().trim() };
+}
+
+// Em material longo o Gemini às vezes devolve uma parte inteira sem acentos ("nao", "informacao"), e a voz lê errado.
+// Conta palavras que no português só existem acentuadas; achou, pede para a IA acentuar os mesmos tópicos de novo.
+const SEM_ACENTO = /\b(nao|sao|entao|tambem|voce|voces|apos|alem|atraves|porem|ninguem|alguem|[a-z]{2,}(?:cao|coes|sao|soes))\b/gi;
+const textosTopico = (t) => [t.titulo, t.texto, t.resumo, ...(t.perguntas || []).flatMap((q) => [q.pergunta, q.resposta]),
+  ...(t.cartoes || []).flatMap((c) => [c.frente, c.verso])].filter(Boolean).join(" ");
+const semAcento = (t) => (textosTopico(t).match(SEM_ACENTO) || []).length >= 3;
+const INSTRUCAO_ACENTOS = `O JSON abaixo é material de estudo em português do Brasil que ficou sem acentos (ou com parte deles faltando).
+Devolva o MESMO JSON, com as mesmas chaves, a mesma quantidade de itens e o mesmo texto, mudando só a acentuação e a
+cedilha para a forma correta (ex.: "nao" → "não", "informacao" → "informação", "voce" → "você"). Não resuma nem reescreva.
+Responda SOMENTE com JSON válido: {"topicos":[...]}`;
+async function acentuar(topicos, chave, aviso) {
+  const ruins = topicos.map((t, i) => (semAcento(t) ? i : -1)).filter((i) => i >= 0);
+  if (!ruins.length) return topicos;
+  aviso("colocando os acentos…");
+  const saida = [...topicos];
+  for (let k = 0; k < ruins.length; k += 4) { // poucos tópicos por pedido, para a resposta não ser cortada
+    const lote = ruins.slice(k, k + 4);
+    try {
+      const o = await gemini(INSTRUCAO_ACENTOS + "\n\nJSON:\n" + JSON.stringify({ topicos: lote.map((i) => topicos[i]) }), chave, aviso,
+        (o) => Array.isArray(o.topicos) && o.topicos.length === lote.length && o.topicos.every((t) => t?.texto && !semAcento(t)));
+      lote.forEach((i, j) => (saida[i] = { ...topicos[i], ...o.topicos[j] }));
+    } catch {} // se não der, fica o texto como veio (melhor sem acento do que perder a parte)
+  }
+  return saida;
 }
 
 const INSTRUCAO_CARTOES = `Crie flash cards para estudar para uma prova a partir do material abaixo, em português do Brasil.
 Para cada tópico indicado ("## número. título"), de 4 a 8 cartões: frente curta (um conceito, sigla, número ou pergunta direta)
 e verso com a resposta em uma ou duas frases. Cubra o que mais cai em prova: definições, números, datas, nomes, listas, exceções.
+Escreva com a acentuação completa e correta do português (á, ã, é, ê, í, ó, õ, ú, ç) em todos os cartões.
 Responda SOMENTE com JSON válido: {"cartoes":[{"topico":0,"frente":"...","verso":"..."}]} (topico = número do tópico, começando em 0).`;
 
 function soLer(texto) {
@@ -450,7 +483,7 @@ function apagarMaterial(id) {
 function carregarLista() { if (!estudo && !preparo && !naTelaPlano) mostrarBiblioteca(); }
 
 // ---------- voz ----------
-const worker = new Worker(new URL("./voz-worker.js?v=20261104200247", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./voz-worker.js?v=20261107015425", import.meta.url), { type: "module" });
 let vozPronta = null, pedidos = new Map(), seq = 0, baixandoVoz = false, inicioVoz = 0;
 const mb = (b) => Math.round(b / 1048576);
 function avisoVoz(titulo, detalhe, pct) {
@@ -545,8 +578,26 @@ function faixaIa() {
     return `<div class="continuar">Faltam ${estudo.pendentes.length} de ${estudo.partes_total} partes para organizar. <button id="btnIa">Continuar organizando</button></div>`;
   if (estudo.organizado_por === "sem IA")
     return `<div class="continuar">Este material está como veio no arquivo. <button id="btnIa">Organizar com IA</button></div>`;
+  if (corrigindo.has(estudo.id)) return `<div class="continuar"><span class="pensando"></span>Colocando os acentos com IA…</div>`;
+  if (estudo.topicos.some(semAcento))
+    return `<div class="continuar">Parte do texto ficou sem acentos. <button id="btnAcentos">Corrigir acentos com IA</button></div>`;
   return "";
 }
+// materiais salvos antes da conferência de acentos: corrige só os tópicos sem acento
+const corrigindo = new Set();
+async function corrigirAcentos() {
+  const chave = pedirChave();
+  if (!chave) return;
+  const e = estudo, st = $("#estado"); st.className = "estado";
+  corrigindo.add(e.id); if (estudo?.id === e.id) montar(topico, pos);
+  const antes = e.topicos.filter(semAcento).length;
+  e.topicos = await acentuar(e.topicos, chave, () => {});
+  corrigindo.delete(e.id); salvarEstudo(e);
+  const faltam = e.topicos.filter(semAcento).length;
+  if (faltam) { st.className = "estado erro"; st.textContent = `Corrigi ${antes - faltam} de ${antes} tópicos sem acento; tente de novo em alguns minutos para os outros.`; }
+  if (estudo?.id === e.id) { const t = tocando; parar(); montar(topico, 0); if (t) tocar(); }
+}
+document.addEventListener("click", (ev) => { if (ev.target.closest?.("#btnAcentos")) corrigirAcentos(); });
 function pedirChave() {
   const chave = $("#chave").value.trim();
   if (!chave) {
@@ -1998,7 +2049,9 @@ setInterval(() => { if (modo === "simulado" && sim.fase === "prova") { const r =
 mostrarVoz();
 aplicarVolume(); // aqui embaixo: o elemento de áudio só existe depois do bloco da leitura
 mostrarBiblioteca();
-if (lembrar("voz", null) === null && !location.hash.startsWith("#migrar")) boasVindas(); // vindo do endereço antigo: a voz chega junto
+if (lembrar("voz", null) === null && !location.hash.startsWith("#migrar")) { boasVindas(); guardar("novidade", NOVIDADE); } // vindo do endereço antigo: a voz chega junto
+$("#fecharNovidade").onclick = () => ($("#modalNovidade").hidden = true);
+const NOVIDADE = "acentos-2026-11"; // trocar a cada novidade nova, junto com o texto do #modalNovidade
 function boasVindas() {
   let escolha = vozAtual;
   const desenhar = () => {
@@ -2560,3 +2613,4 @@ async function avisoEnderecoAntigo() {
 if (location.origin === END.antigo) avisoEnderecoAntigo();
 else if (location.origin === END.novo && location.hash.startsWith("#migrar=")) receberPelaUrl(location.hash.slice(8));
 else if (location.origin === END.novo && location.hash === "#migrar") receberMigracao();
+else if (lembrar("novidade", "") !== NOVIDADE) { guardar("novidade", NOVIDADE); $("#modalNovidade").hidden = false; $("#fecharNovidade").focus(); }

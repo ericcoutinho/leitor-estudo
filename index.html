@@ -663,6 +663,17 @@ body.guia-passo #fraseAnt, body.guia-passo #fraseProx { visibility: hidden; }
 .pomo-botoes { display: flex; gap: 8px; padding: 8px; }
 .pomo-botoes .pri { flex: 1; padding: 9px; }
 .pomo-hoje { display: block; padding: 0 8px 6px; color: var(--suave); font-size: 12px; }
+.novidade { width: min(440px, 100%); }
+.novidade .corpo { padding: 28px 24px 22px; justify-items: center; text-align: center; }
+.novidade .selo-novo { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: var(--destaque-fundo); color: var(--destaque); animation: selo .4s cubic-bezier(.2,.9,.3,1.6); }
+.novidade .selo-novo svg { width: 30px; height: 30px; }
+.novidade .etiqueta { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--destaque); }
+.novidade h2 { margin: 0; font-size: 21px; }
+.novidade ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; text-align: left; width: 100%; }
+.novidade li { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; font-size: 15px; line-height: 1.45; }
+.novidade li svg { width: 20px; height: 20px; margin-top: 1px; color: var(--destaque); }
+.novidade .agradece { width: 100%; background: var(--fundo); border: 1px solid var(--borda); border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 1.45; text-align: left; }
+.novidade .agradece b { color: var(--destaque); }
 .selo-pomo { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; background: var(--destaque-fundo); animation: selo .4s cubic-bezier(.2,.9,.3,1.6); }
 .alerta-pomo { width: min(380px, 100%); }
 .relogio.terminou { animation: tremer .6s ease 2; }
@@ -982,6 +993,25 @@ body.grifando .folha > .texto { cursor: text; }
   </div>
 </div>
 
+<!-- novidade: aparece uma vez para quem já usa (NOVIDADE no app.js) -->
+<div class="fundo-modal" id="modalNovidade" hidden>
+  <div class="modal novidade" role="dialog" aria-modal="true" aria-labelledby="tNovidade">
+    <div class="corpo">
+      <span class="selo-novo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></span>
+      <span class="etiqueta">Novidade</span>
+      <h2 id="tNovidade">Acentos sempre no lugar</h2>
+      <p class="ajuda" style="margin:0">Em materiais longos, parte do texto organizado às vezes perdia os acentos, e a voz lia errado. Agora isso não acontece mais:</p>
+      <ul>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>A IA confere cada parte que organiza. Se alguma vier sem acento, ela mesma corrige antes de salvar.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Materiais que você já tinha: se algum tópico estiver sem acento, aparece o botão <b>Corrigir acentos com IA</b> no topo do material.</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Ao enviar o arquivo, os acentos são preservados também em PDFs feitos no Word ou no Google Docs e em textos salvos no Bloco de Notas.</span></li>
+      </ul>
+      <div class="agradece">Obrigado, <b>Vitor</b>, por ter avisado! Foi o seu retorno que trouxe essa melhoria. Achou mais alguma coisa? Conta pra gente.</div>
+      <div class="linha-botoes" style="justify-content:center"><button class="pri" id="fecharNovidade">Entendi</button></div>
+    </div>
+  </div>
+</div>
+
 <!-- aviso rápido (toast) -->
 <!-- endereço antigo: aviso obrigatório (montado pelo app.js) -->
 <div class="mudou-tela" id="mudouTela" hidden role="dialog" aria-modal="true" aria-labelledby="tMudou"></div>
@@ -1037,6 +1067,6 @@ body.grifando .folha > .texto { cursor: text; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
-<script type="module" src="app.js?v=20261104200247"></script>
+<script type="module" src="app.js?v=20261107015425"></script>
 </body>
 </html>
