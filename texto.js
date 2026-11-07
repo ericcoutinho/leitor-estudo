@@ -76,6 +76,9 @@ export function normalizar(texto) {
   texto = texto.replace(new RegExp(String.raw`R\$\s*(${NUM})`, "g"), (_, n) => reais(n));
   texto = texto.replace(new RegExp(String.raw`(${NUM})\s*%`, "g"), (_, n) => extenso(n) + " por cento");
   texto = texto.replace(/\b(\d+)\s*([ºª])/g, (_, n, g) => { const o = ordinal(+n); return g === "ª" ? o.replace(/o\b/g, "a") : o; });
+  // o espeak deixa "ser"/"ter" sem sílaba tônica (soa engolido) e lê um "é" sozinho entre pontuações como "é agudo"
+  texto = texto.replace(/(?<![\p{L}\d-])([Ss])er(?![\p{L}\d-])/gu, "$1êr").replace(/(?<![\p{L}\d-])([Tt])er(?![\p{L}\d-])/gu, "$1êr");
+  texto = texto.replace(/(^|[,.;:!?]\s*)([Éé])(?=\s*([,.;:!?]|$))/g, "$1$2h");
   return texto.replace(new RegExp(String.raw`(${NUM})(\s+([\p{L}]+))?`, "gu"), (_, n, resto, seg) => extenso(n, seg || "") + (resto || ""));
 }
 
